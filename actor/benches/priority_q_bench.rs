@@ -19,11 +19,10 @@ fn bench_recv(c: &mut Criterion) {
 criterion_group!(benches, bench_send, bench_recv);
 criterion_main!(benches);*/
 
-//use super::*;
-//use std::hint::black_box;
+use rand::prelude::*;
+use rand::rng;
 use criterion::{Criterion, criterion_group, criterion_main};
-use reactor_actor::{HasPriority, reactor_channel};
-//use your_crate::{HasPriority, R2PMsg, reactor_channel};
+use reactor_actor::{HasPriority, reactor_channel, ReactorChannelRx, ReactorChannelTx};
 
 #[derive(Clone)]
 #[allow(dead_code)]
@@ -43,7 +42,6 @@ impl HasPriority for TestMsg {
     }
 }
 
-
 fn send() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
@@ -55,20 +53,41 @@ fn send() {
     });
 }
 
-fn recv() {
+fn send_burst(tx: ReactorChannelTx<TestMsg>) {
+    for _ in 0..10000 {
+        let _ = tx.send(TestMsg::Low);
+    }
+}
+
+fn recv(rx: &mut ReactorChannelRx<TestMsg>) {
+    for _ in 0..10000 {
+        let _ = rx.recv();
+    }
+}
+
+fn random_priority_msg() -> TestMsg {
+    match rng().random_range(0..=2) {
+        0 => TestMsg::Low,
+        1 => TestMsg::Medium,
+        _ => TestMsg::High,
+    }
+}
+
+fn mixed_random_send_recv() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
         let (tx, mut rx) = reactor_channel::<TestMsg>(3, 10000);
 
         for _ in 0..10000 {
-            tx.send(TestMsg::Low).await.unwrap();
-        }
-
-        for _ in 0..10000 {
-            //black_box(rx.recv());
+            let msg = random_priority_msg();
+            tx.send(msg).await.unwrap();
             rx.recv();
         }
     });
+}
+
+fn bench_mixed_random(c: &mut Criterion) {
+    c.bench_function("priority_channel_mixed_random", |b| b.iter(|| mixed_random_send_recv()));
 }
 
 fn bench_send(c: &mut Criterion) {
@@ -76,8 +95,15 @@ fn bench_send(c: &mut Criterion) {
 }
 
 fn bench_recv(c: &mut Criterion) {
-    c.bench_function("priority_channel_recv", |b| b.iter(|| recv()));
+
+    // Setup: fill the channel before benchmarking
+    let (tx, mut rx) = reactor_channel::<TestMsg>(3, 10000);
+    send_burst(tx); // Fill the pipeline before measuring receive
+
+    c.bench_function("priority_channel_recv", |b| {
+        b.iter(|| recv(&mut rx))
+    });
 }
 
-criterion_group!(benches, bench_send, bench_recv);
+criterion_group!(benches, bench_send, bench_recv, bench_mixed_random);
 criterion_main!(benches);

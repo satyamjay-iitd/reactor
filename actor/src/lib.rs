@@ -5,7 +5,6 @@ use std::marker::PhantomData;
 use bincode::{Decode, Encode};
 use err::ActorError;
 use futures::future::join_all;
-use reactor_channel::{ReactorChannelTx};
 use recv::rx;
 use send::tx;
 use tokio::{
@@ -24,7 +23,7 @@ mod recv;
 mod send;
 
 pub use node_comm::{Connection, ControlInst, ControlReq, NodeComm};
-pub use reactor_channel::{HasPriority, MAX_PRIO, reactor_channel};
+pub use reactor_channel::{HasPriority, MAX_PRIO, reactor_channel, ReactorChannelTx, ReactorChannelRx};
 
 static CHANNEL_SIZE: usize = 1 << 20;
 /// Messages that can flow between the actors.

@@ -1317,6 +1317,7 @@ dependencies = [
  "futures",
  "lazy_static",
  "log",
+ "rand",
  "socket2 0.6.0",
  "thiserror",
  "tokio",
