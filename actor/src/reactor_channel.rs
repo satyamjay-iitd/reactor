@@ -14,7 +14,7 @@ pub enum ReactorChannelTx<T> {
 }
 
 impl<T: HasPriority> ReactorChannelTx<T> {
-    pub(crate) async fn send(&self, msg: T) -> Result<(), SendError<T>> {
+    pub async fn send(&self, msg: T) -> Result<(), SendError<T>> {
         match self {
             ReactorChannelTx::SingleChannel(tx) => tx.send(msg).await,
             ReactorChannelTx::MultiChannel(priority_channel_rx) => {
