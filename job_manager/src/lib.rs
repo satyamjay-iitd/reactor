@@ -1,7 +1,10 @@
 use std::collections::BTreeMap;
 
 use futures::future::join_all;
-use placement::{Hostname, LibInfo, LogicalOp, PhysicalOp, PlacementManager};
+use std::time::{Duration, Instant};
+use tokio::time::sleep;
+
+use placement::{ChaosOp, Hostname, LibInfo, LogicalOp, PhysicalOp, PlacementManager};
 use reactor_client::{
     self,
     models::{RemoteActorInfo, SpawnArgs},
@@ -9,11 +12,13 @@ use reactor_client::{
 
 pub mod placement;
 
+#[derive(Clone)]
 struct NodeHandle {
     hostname: Hostname,
     client_config: reactor_client::apis::configuration::Configuration,
     actors: Vec<RemoteActorInfo>,
     loaded_libs: Vec<String>,
+    crash_schedule: Vec<(RemoteActorInfo, Instant)>,
 }
 
 impl NodeHandle {
@@ -59,11 +64,38 @@ impl NodeHandle {
         .unwrap();
         remote_actor_info.hostname = self.hostname.to_string();
         self.actors.push(remote_actor_info.clone());
+        if let Some(ChaosOp::Crash { start_ms }) = &physical_op.chaos {
+            let now = Instant::now();
+            let delay = Duration::from_millis(*start_ms as u64);
+            self.crash_schedule
+                .push((remote_actor_info.clone(), now + delay));
+        }
         remote_actor_info
     }
 
     async fn notify_remote_actor_added(&self, remote_actor: &RemoteActorInfo) {
         reactor_client::apis::default_api::actor_added(&self.client_config, remote_actor.clone())
+            .await
+            .unwrap();
+    }
+
+    async fn schedule_actor_crash(&self) {
+        // also needs some logic on, what if ctrlc pressed prematurely
+        // and this function keeps running and sends requests to non-existent nodes
+        for (actor, when) in self.crash_schedule.clone() {
+            let this = self.clone();
+            tokio::spawn(async move {
+                let now = Instant::now();
+                if when > now {
+                    sleep(when - now).await;
+                }
+                this.stop_actor(&actor).await;
+            });
+        }
+    }
+
+    async fn stop_actor(&self, remote_actor: &RemoteActorInfo) {
+        reactor_client::apis::default_api::stop_actor(&self.client_config, remote_actor.clone())
             .await
             .unwrap();
     }
@@ -95,6 +127,7 @@ impl<PM: PlacementManager> JobController<PM> {
                 client_config: self.client_config(hostname, port),
                 actors: Vec::new(),
                 loaded_libs: Vec::new(),
+                crash_schedule: Vec::new(),
             },
         );
     }
@@ -135,6 +168,12 @@ impl<PM: PlacementManager> JobController<PM> {
                     .collect();
                 join_all(handles).await;
             }
+        }
+    }
+
+    pub async fn chaos_scheduler(&self) {
+        for (_, node_handle) in self.nodes.iter() {
+            node_handle.schedule_actor_crash().await;
         }
     }
 

@@ -228,6 +228,7 @@ async fn handle_job_req(
         JobControllerReq::StopActor { addr } => {
             event!(target: "serving stop actor", Level::INFO, addr);
             if let Some(actor) = local_actors.remove(&addr) {
+                event!(target: "stopping actor", Level::INFO, addr);
                 actor.handle.send(ControlInst::Stop).await.unwrap();
             }
         }

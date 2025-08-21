@@ -45,6 +45,7 @@ async fn main() {
     }
 
     jc.start_job(ops).await;
+    jc.chaos_scheduler().await;
     let _ = signal::ctrl_c().await;
     jc.stop_job().await;
 }
@@ -52,7 +53,7 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use reactor_jobm::placement::PhysicalOp;
+    use reactor_jobm::placement::ChaosOp;
     use serde_json::json;
     use std::collections::HashMap;
 
@@ -76,6 +77,7 @@ port = 3000
   [[placement.pinger]]
   nodename = "node1"
   actor_name = "pinger"
+  chaos = {type = "CRASH", start_ms = 10000}
   other = "ponger"
 
   [[placement.ponger]]
@@ -107,6 +109,7 @@ port = 3000
                         actor_name: "pinger".into(),
                         payload: HashMap::from([("other".to_string(), json!("ponger"))]),
                         replicas: None,
+                        chaos: Some(ChaosOp::Crash { start_ms: 10000 }),
                     }],
                 ),
                 (
@@ -129,6 +132,7 @@ port = 3000
                             ),
                         ]),
                         replicas: Some(3),
+                        chaos: None,
                     }],
                 ),
             ]),

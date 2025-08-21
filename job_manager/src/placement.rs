@@ -41,10 +41,27 @@ pub struct LogicalOp {
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ChaosOp {
+    Crash {
+        start_ms: u32,
+    },
+    MsgLoss {
+        start_ms: u32,
+        probability: i32, // should change to f32, but issue with derive(Eq)
+    },
+    MsgDuplication {
+        start_ms: u32,
+        rate: i32, // should change to f32, but issue with derive(Eq)
+    },
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct PhysicalOp {
     pub nodename: String,
     pub actor_name: String,
     pub replicas: Option<u32>,
+    pub chaos: Option<ChaosOp>,
     #[serde(flatten)]
     pub payload: HashMap<String, serde_json::Value>,
 }
@@ -72,6 +89,7 @@ impl ManualPlacementManager {
                             actor_name: format!("{}{}", phys_op.actor_name, i),
                             payload: phys_op.payload.clone(),
                             replicas: None,
+                            chaos: phys_op.chaos.clone(),
                         });
                     }
                 } else {
