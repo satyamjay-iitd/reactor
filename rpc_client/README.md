@@ -29,6 +29,7 @@ Class | Method | HTTP request | Description
 *DefaultApi* | [**actor_added**](docs/DefaultApi.md#actor_added) | **POST** /actor_added | 
 *DefaultApi* | [**register_lib**](docs/DefaultApi.md#register_lib) | **POST** /register_lib | 
 *DefaultApi* | [**start_actor**](docs/DefaultApi.md#start_actor) | **POST** /start_actor | 
+*DefaultApi* | [**stop_actor**](docs/DefaultApi.md#stop_actor) | **POST** /stop_actor | 
 *DefaultApi* | [**stop_all_actors**](docs/DefaultApi.md#stop_all_actors) | **POST** /stop_all_actors | 
 
 

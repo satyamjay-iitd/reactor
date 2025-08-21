@@ -197,6 +197,30 @@ async fn actor_added(
 
 #[cfg_attr(feature="swagger", utoipa::path(
     post,
+    path = "/stop_actor",
+    responses(
+        (status = 200, description = "Actor stop initiated")
+    )
+))]
+async fn stop_actor(
+    State(state): State<Arc<AppState>>,
+    Json(actor_info): Json<RemoteActorInfo>,
+) -> impl IntoResponse {
+    state
+        .clone()
+        .tx
+        .send(JobControllerReq::StopActor {
+            addr: actor_info.name.clone(),
+        })
+        .unwrap();
+    (
+        axum::http::StatusCode::OK,
+        format!("Actor {} Stopped!", actor_info.name),
+    )
+}
+
+#[cfg_attr(feature="swagger", utoipa::path(
+    post,
     path = "/stop_all_actors",
     responses(
         (status = 200, description = "Actors stop initiated")
@@ -213,7 +237,7 @@ async fn stop_all_actors(State(state): State<Arc<AppState>>) -> impl IntoRespons
 
 #[cfg(feature = "swagger")]
 #[derive(OpenApi)]
-#[openapi(paths(start_actor, actor_added, register_lib, stop_all_actors))]
+#[openapi(paths(start_actor, actor_added, register_lib, stop_actor, stop_all_actors))]
 struct ApiDoc;
 
 pub async fn webserver(job_control_tx: UnboundedSender<JobControllerReq>, port: u16) {
@@ -222,6 +246,7 @@ pub async fn webserver(job_control_tx: UnboundedSender<JobControllerReq>, port: 
         .route("/start_actor", post(start_actor))
         .route("/actor_added", post(actor_added))
         .route("/register_lib", post(register_lib))
+        .route("/stop_actor", post(stop_actor))
         .route("/stop_all_actors", post(stop_all_actors))
         .with_state(state)
         .layer(

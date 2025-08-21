@@ -64,6 +64,9 @@ pub(crate) enum JobControllerReq {
         addr: ActorAddr,
         sock_addr: SocketAddr,
     },
+    StopActor {
+        addr: ActorAddr,
+    },
     StopAllActors,
 }
 
@@ -221,6 +224,12 @@ async fn handle_job_req(
                     remote_actor_addr: sock_addr,
                 },
             );
+        }
+        JobControllerReq::StopActor { addr } => {
+            event!(target: "serving stop actor", Level::INFO, addr);
+            if let Some(actor) = local_actors.remove(&addr) {
+                actor.handle.send(ControlInst::Stop).await.unwrap();
+            }
         }
         JobControllerReq::StopAllActors => {
             event!(target: "serving stop all actors", Level::INFO, total_actors=local_actors.len());
@@ -388,6 +397,12 @@ async fn handle_job_req<CG: CodeGenerator + Send>(
                     remote_actor_addr: sock_addr,
                 },
             );
+        }
+        JobControllerReq::StopActor { addr } => {
+            log::info!("[Node] Stopping Actor {addr}");
+            if let Some(actor) = local_actors.remove(&addr) {
+                actor.handle.send(ControlInst::Stop).await.unwrap();
+            }
         }
         JobControllerReq::StopAllActors => {
             for (name, actor) in local_actors.drain() {

@@ -7,6 +7,7 @@ Method | HTTP request | Description
 [**actor_added**](DefaultApi.md#actor_added) | **POST** /actor_added | 
 [**register_lib**](DefaultApi.md#register_lib) | **POST** /register_lib | 
 [**start_actor**](DefaultApi.md#start_actor) | **POST** /start_actor | 
+[**stop_actor**](DefaultApi.md#stop_actor) | **POST** /stop_actor | 
 [**stop_all_actors**](DefaultApi.md#stop_all_actors) | **POST** /stop_all_actors | 
 
 
@@ -91,6 +92,34 @@ No authorization required
 
 - **Content-Type**: application/json
 - **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+
+## stop_actor
+
+> stop_actor(remote_actor_info)
+
+
+### Parameters
+
+
+Name | Type | Description  | Required | Notes
+------------- | ------------- | ------------- | ------------- | -------------
+**remote_actor_info** | [**RemoteActorInfo**](RemoteActorInfo.md) |  | [required] |
+
+### Return type
+
+ (empty response body)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: Not defined
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
