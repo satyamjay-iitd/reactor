@@ -1334,15 +1334,27 @@ name = "ping_pong_actor"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "criterion",
  "env_logger",
  "lazy_static",
  "log",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry-semantic-conventions",
+ "opentelemetry-stdout",
+ "opentelemetry_sdk",
  "rand",
  "reactor-actor",
+ "reactor-inst",
  "reactor-macros",
  "serde_json",
  "tokio",
  "tokio-util",
+ "tracing",
+ "tracing-core",
+ "tracing-opentelemetry",
+ "tracing-shared",
+ "tracing-subscriber",
 ]
 
 [[package]]
