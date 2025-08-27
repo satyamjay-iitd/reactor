@@ -12,7 +12,6 @@ use reactor_client::{
 
 pub mod placement;
 
-#[derive(Clone)]
 struct NodeHandle {
     hostname: Hostname,
     client_config: reactor_client::apis::configuration::Configuration,
@@ -83,21 +82,19 @@ impl NodeHandle {
         // also needs some logic on, what if ctrlc pressed prematurely
         // and this function keeps running and sends requests to non-existent nodes
         for (actor, when) in self.crash_schedule.clone() {
-            let this = self.clone();
+            // let this = self.clone();
+            let client_config = self.client_config.clone();
             tokio::spawn(async move {
                 let now = Instant::now();
                 if when > now {
                     sleep(when - now).await;
                 }
-                this.stop_actor(&actor).await;
+                // this.stop_actor(&actor).await;
+                reactor_client::apis::default_api::stop_actor(&client_config, actor.clone())
+                    .await
+                    .unwrap();
             });
         }
-    }
-
-    async fn stop_actor(&self, remote_actor: &RemoteActorInfo) {
-        reactor_client::apis::default_api::stop_actor(&self.client_config, remote_actor.clone())
-            .await
-            .unwrap();
     }
 
     async fn stop_all_actors(&self) {
