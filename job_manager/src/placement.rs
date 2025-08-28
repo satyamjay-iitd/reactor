@@ -57,7 +57,7 @@ pub enum ChaosOp {
     MsgDuplication {
         start_ms: Option<u32>,
         stop_ms: Option<u32>,
-        factor: i32,
+        factor: u32,
         probability: OrderedFloat<f32>,
     },
 }

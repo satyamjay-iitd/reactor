@@ -16,7 +16,7 @@ pub struct ChaosConfig {
     #[serde(rename = "actor_name")]
     pub actor_name: String,
     #[serde(rename = "factor", skip_serializing_if = "Option::is_none")]
-    pub factor: Option<i32>,
+    pub factor: Option<u32>,
     #[serde(rename = "kind")]
     pub kind: models::ChaosType,
     #[serde(rename = "probability", skip_serializing_if = "Option::is_none")]

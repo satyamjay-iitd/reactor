@@ -52,7 +52,6 @@ impl NodeHandle {
     async fn place(&mut self, logical_op: &LogicalOp, physical_op: &PhysicalOp) -> RemoteActorInfo {
         let mut remote_actor_info = reactor_client::apis::default_api::start_actor(
             &self.client_config,
-            //? Might need to add choas info here (instead of just payload) -> useful for msg_loss, msg_duplicate chaos ops
             SpawnArgs {
                 actor_name: physical_op.actor_name.clone(),
                 operator_name: logical_op.name.clone(),
@@ -89,7 +88,7 @@ impl NodeHandle {
     async fn schedule_actor_chaos(&self) {
         // also needs some logic on, what if ctrlc pressed prematurely
         // and this function keeps running and sends requests to non-existent nodes
-        for (actor, op, start, stop_opt) in self.chaos_schedule.clone() {
+        for (actor, op, start, _stop_opt) in self.chaos_schedule.clone() {
             let client_config = self.client_config.clone();
 
             let chaos_config = match op {

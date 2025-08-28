@@ -59,7 +59,7 @@ pub struct ChaosConfig {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "swagger", schema(nullable = false))]
-    pub factor: Option<i32>,
+    pub factor: Option<u32>,
 }
 
 #[cfg_attr(feature = "swagger", derive(utoipa::ToSchema))]

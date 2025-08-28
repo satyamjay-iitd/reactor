@@ -228,7 +228,6 @@ async fn handle_job_req(
             );
         }
         JobControllerReq::StopActor { addr } => {
-            event!(target: "serving stop actor", Level::INFO, addr);
             if let Some(actor) = local_actors.remove(&addr) {
                 event!(target: "stopping actor", Level::INFO, addr);
                 actor.handle.send(ControlInst::Stop).await.unwrap();
@@ -243,7 +242,6 @@ async fn handle_job_req(
         }
         JobControllerReq::Chaos(chaos_req) => match chaos_req.kind {
             ChaosType::Crash => {
-                event!(target: "serving crash actor", Level::INFO, chaos_req.actor_name);
                 if let Some(actor) = local_actors.remove(&chaos_req.actor_name) {
                     event!(target: "stopping actor", Level::INFO, chaos_req.actor_name);
                     actor.handle.send(ControlInst::Stop).await.unwrap();
@@ -251,7 +249,6 @@ async fn handle_job_req(
             }
             ChaosType::MsgLoss => {
                 if let Some(probability) = chaos_req.probability {
-                    event!(target: "serving msg loss", Level::INFO, chaos_req.actor_name, probability);
                     if let Some(actor) = local_actors.get(&chaos_req.actor_name) {
                         event!(target: "setting msg loss", Level::INFO, chaos_req.actor_name, probability);
                         actor
@@ -265,7 +262,6 @@ async fn handle_job_req(
             ChaosType::MsgDuplication => {
                 if let (Some(probability), Some(factor)) = (chaos_req.probability, chaos_req.factor)
                 {
-                    event!(target: "serving msg duplication", Level::INFO, chaos_req.actor_name, factor, probability);
                     if let Some(actor) = local_actors.get(&chaos_req.actor_name) {
                         event!(target: "setting msg duplication", Level::INFO, chaos_req.actor_name, factor, probability);
                         actor

@@ -15,6 +15,7 @@ use tokio::{
 use tokio_util::codec::{Decoder, Encoder};
 pub use tracing_shared::setup_shared_logger_ref;
 
+mod chaos_manager;
 pub mod codec;
 pub mod err;
 mod node_comm;
@@ -136,6 +137,13 @@ enum R2PMsg<T> {
     AddPrio(mpsc::Receiver<R2PMsg<T>>),
     #[allow(dead_code)]
     RemoveLowPrio,
+    SetMsgDuplication {
+        factor: u32,
+        probability: f32,
+    },
+    SetMsgLoss {
+        probability: f32,
+    },
 }
 
 impl<T: Clone> Clone for R2PMsg<T> {
@@ -164,6 +172,8 @@ impl<T: HasPriority> HasPriority for R2PMsg<T> {
             R2PMsg::Exit => MAX_PRIO,
             R2PMsg::AddPrio(_) => MAX_PRIO,
             R2PMsg::RemoveLowPrio => MAX_PRIO,
+            R2PMsg::SetMsgLoss { .. } => MAX_PRIO,
+            R2PMsg::SetMsgDuplication { .. } => MAX_PRIO,
         }
     }
 }
@@ -504,15 +514,42 @@ where
         ));
 
         let _addr = ctx.addr;
+        let mut chaos_manager = chaos_manager::ChaosManager::new();
         let proc_handle: JoinHandle<Result<(), ActorError>> =
             tokio::task::spawn_blocking(move || -> Result<(), ActorError> {
                 tracing::info!("[ACTOR][{}] Processor Started", _addr);
                 loop {
                     match r2p_rx.recv() {
                         Some(R2PMsg::Msg(m, origin)) => {
-                            let processed = processor.process(m);
-                            for o in processed {
-                                p2s_tx.send((o, origin)).map_err(|_| ActorError::P2SErr)?;
+                            let chaos_out = chaos_manager.apply_chaos(m);
+                            let chaos_out_len = chaos_out.len();
+                            // // print len
+                            tracing::debug!(
+                                "[ACTOR][{}] Message Received from {} | After Chaos: {} messages",
+                                _addr,
+                                origin,
+                                chaos_out_len
+                            );
+                            tracing::debug!(
+                                "[ACTOR][{}] Chaos Flags - Msg Loss: {} | Msg Duplication: {}",
+                                _addr,
+                                chaos_manager.msg_loss_probability.unwrap_or(-1.0),
+                                chaos_manager.msg_duplication_factor.unwrap_or(1)
+                            );
+                            if chaos_out_len > 1 {
+                                tracing::warn!(
+                                    "[ACTOR][{}] Message Duplicated {} times",
+                                    _addr,
+                                    chaos_out_len
+                                );
+                            } else if chaos_out_len == 0 {
+                                tracing::warn!("[ACTOR][{}] Message Lost", _addr);
+                            }
+                            for msg in chaos_out {
+                                let processed = processor.process(msg);
+                                for o in processed {
+                                    p2s_tx.send((o, origin)).map_err(|_| ActorError::P2SErr)?;
+                                }
                             }
                         }
                         Some(R2PMsg::AddPrio(new_rx)) => {
@@ -523,6 +560,26 @@ where
                         }
                         Some(R2PMsg::Exit) => {
                             break;
+                        }
+                        Some(R2PMsg::SetMsgDuplication {
+                            factor,
+                            probability,
+                        }) => {
+                            tracing::info!(
+                                "[ACTOR][{}] Setting Msg Duplication: factor={}, probability={}",
+                                _addr,
+                                factor,
+                                probability
+                            );
+                            chaos_manager.set_msg_duplication(factor, probability);
+                        }
+                        Some(R2PMsg::SetMsgLoss { probability }) => {
+                            tracing::info!(
+                                "[ACTOR][{}] Setting Msg Loss: probability={}",
+                                _addr,
+                                probability
+                            );
+                            chaos_manager.set_msg_loss(probability);
                         }
                         None => {
                             break;

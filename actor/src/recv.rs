@@ -128,28 +128,29 @@ where
                     msg_transform,
                 ));
             }
+            ControlInst::SetMsgDuplication {
+                factor,
+                probability,
+            } => {
+                p_tx.send(R2PMsg::SetMsgDuplication {
+                    factor,
+                    probability,
+                })
+                .await
+                .map_err(|_| ActorError::R2PErr)?;
+                // break;
+            }
+            ControlInst::SetMsgLoss { probability } => {
+                p_tx.send(R2PMsg::SetMsgLoss { probability })
+                    .await
+                    .map_err(|_| ActorError::R2PErr)?;
+                // break;
+            }
             ControlInst::Stop => {
                 cancel_token.cancel();
                 p_tx.send(R2PMsg::Exit)
                     .await
                     .map_err(|_| ActorError::R2PErr)?;
-                break;
-            }
-            ControlInst::SetMsgDuplication {
-                factor,
-                probability,
-            } => {
-                // cancel_token.cancel();
-                // p_tx.send(R2PMsg::Exit)
-                //     .await
-                //     .map_err(|_| ActorError::R2PErr)?;
-                break;
-            }
-            ControlInst::SetMsgLoss { probability } => {
-                // cancel_token.cancel();
-                // p_tx.send(R2PMsg::Exit)
-                //     .await
-                //     .map_err(|_| ActorError::R2PErr)?;
                 break;
             }
         }

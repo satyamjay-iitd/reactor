@@ -53,6 +53,7 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ordered_float::OrderedFloat;
     use reactor_jobm::placement::ChaosOp;
     use serde_json::json;
     use std::collections::HashMap;
@@ -77,8 +78,15 @@ port = 3000
   [[placement.pinger]]
   nodename = "node1"
   actor_name = "pinger"
-  chaos = {type = "CRASH", start_ms = 10000}
   other = "ponger"
+    [[placement.pinger.chaos]]
+    type = "CRASH"
+    start_ms = 10000
+
+    [[placement.pinger.chaos]]
+    type = "MSG_LOSS"
+    start_ms = 10000
+    probability = 0.1
 
   [[placement.ponger]]
   nodename = "node1"
@@ -109,9 +117,16 @@ port = 3000
                         actor_name: "pinger".into(),
                         payload: HashMap::from([("other".to_string(), json!("ponger"))]),
                         replicas: None,
-                        chaos: Some(vec![ChaosOp::Crash {
-                            start_ms: Some(10000),
-                        }]),
+                        chaos: Some(vec![
+                            ChaosOp::Crash {
+                                start_ms: Some(10000),
+                            },
+                            ChaosOp::MsgLoss {
+                                start_ms: Some(10000),
+                                probability: OrderedFloat(0.1),
+                                stop_ms: None,
+                            },
+                        ]),
                     }],
                 ),
                 (
