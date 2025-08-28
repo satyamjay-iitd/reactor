@@ -1,3 +1,7 @@
+pub mod chaos_config;
+pub use self::chaos_config::ChaosConfig;
+pub mod chaos_type;
+pub use self::chaos_type::ChaosType;
 pub mod registration_args;
 pub use self::registration_args::RegistrationArgs;
 pub mod remote_actor_info;

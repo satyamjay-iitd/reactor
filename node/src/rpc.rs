@@ -47,6 +47,29 @@ pub(crate) struct RemoteActorInfo {
     pub port: u16,
 }
 
+#[cfg_attr(feature = "swagger", derive(utoipa::ToSchema))]
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ChaosConfig {
+    pub kind: ChaosType,
+    pub actor_name: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "swagger", schema(nullable = false))]
+    pub probability: Option<f32>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "swagger", schema(nullable = false))]
+    pub factor: Option<i32>,
+}
+
+#[cfg_attr(feature = "swagger", derive(utoipa::ToSchema))]
+#[derive(Serialize, Deserialize, Debug)]
+pub enum ChaosType {
+    Crash,
+    MsgLoss,
+    MsgDuplication,
+}
+
 #[cfg_attr(feature = "swagger", derive(ToSchema))]
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct RegistrationArgs {
@@ -235,9 +258,35 @@ async fn stop_all_actors(State(state): State<Arc<AppState>>) -> impl IntoRespons
     (axum::http::StatusCode::OK, "Actors Stopped!")
 }
 
+#[cfg_attr(feature="swagger", utoipa::path(
+    post,
+    path = "/add_chaos",
+    responses(
+        (status = 200, description = "Actor stop initiated")
+    )
+))]
+async fn add_chaos(
+    State(state): State<Arc<AppState>>,
+    Json(chaos_config): Json<ChaosConfig>,
+) -> impl IntoResponse {
+    state
+        .clone()
+        .tx
+        .send(JobControllerReq::Chaos(chaos_config))
+        .unwrap();
+    (axum::http::StatusCode::OK, "Chaos Config Applied!")
+}
+
 #[cfg(feature = "swagger")]
 #[derive(OpenApi)]
-#[openapi(paths(start_actor, actor_added, register_lib, stop_actor, stop_all_actors))]
+#[openapi(paths(
+    start_actor,
+    actor_added,
+    register_lib,
+    stop_actor,
+    stop_all_actors,
+    add_chaos
+))]
 struct ApiDoc;
 
 pub async fn webserver(job_control_tx: UnboundedSender<JobControllerReq>, port: u16) {
@@ -248,6 +297,7 @@ pub async fn webserver(job_control_tx: UnboundedSender<JobControllerReq>, port: 
         .route("/register_lib", post(register_lib))
         .route("/stop_actor", post(stop_actor))
         .route("/stop_all_actors", post(stop_all_actors))
+        .route("/add_chaos", post(add_chaos))
         .with_state(state)
         .layer(
             TraceLayer::new_for_http()

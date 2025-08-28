@@ -109,7 +109,9 @@ port = 3000
                         actor_name: "pinger".into(),
                         payload: HashMap::from([("other".to_string(), json!("ponger"))]),
                         replicas: None,
-                        chaos: Some(ChaosOp::Crash { start_ms: 10000 }),
+                        chaos: Some(vec![ChaosOp::Crash {
+                            start_ms: Some(10000),
+                        }]),
                     }],
                 ),
                 (

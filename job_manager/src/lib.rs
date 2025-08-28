@@ -7,7 +7,7 @@ use tokio::time::sleep;
 use placement::{ChaosOp, Hostname, LibInfo, LogicalOp, PhysicalOp, PlacementManager};
 use reactor_client::{
     self,
-    models::{RemoteActorInfo, SpawnArgs},
+    models::{ChaosConfig, ChaosType, RemoteActorInfo, SpawnArgs},
 };
 
 pub mod placement;
@@ -17,7 +17,7 @@ struct NodeHandle {
     client_config: reactor_client::apis::configuration::Configuration,
     actors: Vec<RemoteActorInfo>,
     loaded_libs: Vec<String>,
-    crash_schedule: Vec<(RemoteActorInfo, Instant)>,
+    chaos_schedule: Vec<(RemoteActorInfo, ChaosOp, Instant, Option<Instant>)>,
 }
 
 impl NodeHandle {
@@ -52,6 +52,7 @@ impl NodeHandle {
     async fn place(&mut self, logical_op: &LogicalOp, physical_op: &PhysicalOp) -> RemoteActorInfo {
         let mut remote_actor_info = reactor_client::apis::default_api::start_actor(
             &self.client_config,
+            //? Might need to add choas info here (instead of just payload) -> useful for msg_loss, msg_duplicate chaos ops
             SpawnArgs {
                 actor_name: physical_op.actor_name.clone(),
                 operator_name: logical_op.name.clone(),
@@ -63,11 +64,18 @@ impl NodeHandle {
         .unwrap();
         remote_actor_info.hostname = self.hostname.to_string();
         self.actors.push(remote_actor_info.clone());
-        if let Some(ChaosOp::Crash { start_ms }) = &physical_op.chaos {
+        for chaos_op in &physical_op.chaos.clone().unwrap_or_default() {
             let now = Instant::now();
-            let delay = Duration::from_millis(*start_ms as u64);
-            self.crash_schedule
-                .push((remote_actor_info.clone(), now + delay));
+            let start_time = now + Duration::from_millis(chaos_op.start_ms() as u64);
+            let stop_time = chaos_op
+                .stop_ms()
+                .map(|stop_ms| now + Duration::from_millis(stop_ms as u64));
+            self.chaos_schedule.push((
+                remote_actor_info.clone(),
+                chaos_op.clone(),
+                start_time,
+                stop_time,
+            ));
         }
         remote_actor_info
     }
@@ -78,22 +86,59 @@ impl NodeHandle {
             .unwrap();
     }
 
-    async fn schedule_actor_crash(&self) {
+    async fn schedule_actor_chaos(&self) {
         // also needs some logic on, what if ctrlc pressed prematurely
         // and this function keeps running and sends requests to non-existent nodes
-        for (actor, when) in self.crash_schedule.clone() {
-            // let this = self.clone();
+        for (actor, op, start, stop_opt) in self.chaos_schedule.clone() {
             let client_config = self.client_config.clone();
+
+            let chaos_config = match op {
+                ChaosOp::Crash { .. } => ChaosConfig {
+                    kind: ChaosType::Crash,
+                    actor_name: actor.name.clone(),
+                    factor: None,
+                    probability: None,
+                },
+
+                ChaosOp::MsgLoss { probability, .. } => ChaosConfig {
+                    kind: ChaosType::MsgLoss,
+                    actor_name: actor.name.clone(),
+                    factor: None,
+                    probability: Some(probability.into_inner()),
+                },
+
+                ChaosOp::MsgDuplication {
+                    factor,
+                    probability,
+                    ..
+                } => ChaosConfig {
+                    kind: ChaosType::MsgDuplication,
+                    actor_name: actor.name.clone(),
+                    factor: Some(factor),
+                    probability: Some(probability.into_inner()),
+                },
+            };
             tokio::spawn(async move {
                 let now = Instant::now();
-                if when > now {
-                    sleep(when - now).await;
+                if start > now {
+                    sleep(start - now).await;
                 }
-                // this.stop_actor(&actor).await;
-                reactor_client::apis::default_api::stop_actor(&client_config, actor.clone())
+                reactor_client::apis::default_api::add_chaos(&client_config, chaos_config)
                     .await
                     .unwrap();
             });
+            //? This is for later
+            // if let Some(stop) = stop_opt {
+            //     tokio::spawn(async move {
+            //         let now = Instant::now();
+            //         if stop > now {
+            //             sleep(stop - now).await;
+            //         }
+            //         // reactor_client::apis::default_api::stop_actor(&client_config, actor.clone())
+            //         //     .await
+            //         //     .unwrap();
+            //     });
+            // }
         }
     }
 
@@ -124,7 +169,7 @@ impl<PM: PlacementManager> JobController<PM> {
                 client_config: self.client_config(hostname, port),
                 actors: Vec::new(),
                 loaded_libs: Vec::new(),
-                crash_schedule: Vec::new(),
+                chaos_schedule: Vec::new(),
             },
         );
     }
@@ -170,7 +215,7 @@ impl<PM: PlacementManager> JobController<PM> {
 
     pub async fn chaos_scheduler(&self) {
         for (_, node_handle) in self.nodes.iter() {
-            node_handle.schedule_actor_crash().await;
+            node_handle.schedule_actor_chaos().await;
         }
     }
 

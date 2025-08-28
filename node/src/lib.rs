@@ -45,6 +45,7 @@ pub(crate) struct SpawnResult {
 #[derive(Debug)]
 pub(crate) struct RegisterResult {}
 
+use rpc::{ChaosConfig, ChaosType};
 /// Global Controller
 pub(crate) enum JobControllerReq {
     #[cfg(feature = "dynop")]
@@ -68,6 +69,7 @@ pub(crate) enum JobControllerReq {
         addr: ActorAddr,
     },
     StopAllActors,
+    Chaos(ChaosConfig),
 }
 
 struct LocalActor {
@@ -239,6 +241,45 @@ async fn handle_job_req(
                 actor.handle.send(ControlInst::Stop).await.unwrap();
             }
         }
+        JobControllerReq::Chaos(chaos_req) => match chaos_req.kind {
+            ChaosType::Crash => {
+                event!(target: "serving crash actor", Level::INFO, chaos_req.actor_name);
+                if let Some(actor) = local_actors.remove(&chaos_req.actor_name) {
+                    event!(target: "stopping actor", Level::INFO, chaos_req.actor_name);
+                    actor.handle.send(ControlInst::Stop).await.unwrap();
+                }
+            }
+            ChaosType::MsgLoss => {
+                if let Some(probability) = chaos_req.probability {
+                    event!(target: "serving msg loss", Level::INFO, chaos_req.actor_name, probability);
+                    if let Some(actor) = local_actors.get(&chaos_req.actor_name) {
+                        event!(target: "setting msg loss", Level::INFO, chaos_req.actor_name, probability);
+                        actor
+                            .handle
+                            .send(ControlInst::SetMsgLoss { probability })
+                            .await
+                            .unwrap();
+                    }
+                }
+            }
+            ChaosType::MsgDuplication => {
+                if let (Some(probability), Some(factor)) = (chaos_req.probability, chaos_req.factor)
+                {
+                    event!(target: "serving msg duplication", Level::INFO, chaos_req.actor_name, factor, probability);
+                    if let Some(actor) = local_actors.get(&chaos_req.actor_name) {
+                        event!(target: "setting msg duplication", Level::INFO, chaos_req.actor_name, factor, probability);
+                        actor
+                            .handle
+                            .send(ControlInst::SetMsgDuplication {
+                                factor,
+                                probability,
+                            })
+                            .await
+                            .unwrap();
+                    }
+                }
+            }
+        },
     }
 }
 
@@ -400,8 +441,8 @@ async fn handle_job_req<CG: CodeGenerator + Send>(
             );
         }
         JobControllerReq::StopActor { addr } => {
-            log::info!("[Node] Stopping Actor {addr}");
             if let Some(actor) = local_actors.remove(&addr) {
+                log::info!("[Node] Stopping Actor {addr}");
                 actor.handle.send(ControlInst::Stop).await.unwrap();
             }
         }

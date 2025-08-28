@@ -211,7 +211,8 @@ async fn sender_task<M, E>(
             Connection::CouldntResolve => {
                 log::warn!("[ACTOR] Failed to resolve {}", send_addr);
                 tokio::time::sleep(Duration::from_millis(100)).await;
-                continue;
+                // continue;
+                break;
             }
         };
     }

@@ -5,6 +5,7 @@ All URIs are relative to *http://localhost*
 Method | HTTP request | Description
 ------------- | ------------- | -------------
 [**actor_added**](DefaultApi.md#actor_added) | **POST** /actor_added | 
+[**add_chaos**](DefaultApi.md#add_chaos) | **POST** /add_chaos | 
 [**register_lib**](DefaultApi.md#register_lib) | **POST** /register_lib | 
 [**start_actor**](DefaultApi.md#start_actor) | **POST** /start_actor | 
 [**stop_actor**](DefaultApi.md#stop_actor) | **POST** /stop_actor | 
@@ -23,6 +24,34 @@ Method | HTTP request | Description
 Name | Type | Description  | Required | Notes
 ------------- | ------------- | ------------- | ------------- | -------------
 **remote_actor_info** | [**RemoteActorInfo**](RemoteActorInfo.md) | Remote Actor Detail | [required] |
+
+### Return type
+
+ (empty response body)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: Not defined
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+
+## add_chaos
+
+> add_chaos(chaos_config)
+
+
+### Parameters
+
+
+Name | Type | Description  | Required | Notes
+------------- | ------------- | ------------- | ------------- | -------------
+**chaos_config** | [**ChaosConfig**](ChaosConfig.md) |  | [required] |
 
 ### Return type
 

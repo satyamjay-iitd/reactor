@@ -135,6 +135,23 @@ where
                     .map_err(|_| ActorError::R2PErr)?;
                 break;
             }
+            ControlInst::SetMsgDuplication {
+                factor,
+                probability,
+            } => {
+                // cancel_token.cancel();
+                // p_tx.send(R2PMsg::Exit)
+                //     .await
+                //     .map_err(|_| ActorError::R2PErr)?;
+                break;
+            }
+            ControlInst::SetMsgLoss { probability } => {
+                // cancel_token.cancel();
+                // p_tx.send(R2PMsg::Exit)
+                //     .await
+                //     .map_err(|_| ActorError::R2PErr)?;
+                break;
+            }
         }
     }
     tcp_server_set.abort_all();

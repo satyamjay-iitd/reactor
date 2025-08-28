@@ -20,6 +20,13 @@ pub enum ActorAddedError {
     UnknownValue(serde_json::Value),
 }
 
+/// struct for typed errors of method [`add_chaos`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AddChaosError {
+    UnknownValue(serde_json::Value),
+}
+
 /// struct for typed errors of method [`register_lib`]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -55,7 +62,7 @@ pub async fn actor_added(
     remote_actor_info: models::RemoteActorInfo,
 ) -> Result<(), Error<ActorAddedError>> {
     // add a prefix to parameters to efficiently prevent name collisions
-    let p_remote_actor_info = remote_actor_info;
+    let p_body_remote_actor_info = remote_actor_info;
 
     let uri_str = format!("{}/actor_added", configuration.base_path);
     let mut req_builder = configuration
@@ -65,7 +72,7 @@ pub async fn actor_added(
     if let Some(ref user_agent) = configuration.user_agent {
         req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
     }
-    req_builder = req_builder.json(&p_remote_actor_info);
+    req_builder = req_builder.json(&p_body_remote_actor_info);
 
     let req = req_builder.build()?;
     let resp = configuration.client.execute(req).await?;
@@ -85,12 +92,47 @@ pub async fn actor_added(
     }
 }
 
+pub async fn add_chaos(
+    configuration: &configuration::Configuration,
+    chaos_config: models::ChaosConfig,
+) -> Result<(), Error<AddChaosError>> {
+    // add a prefix to parameters to efficiently prevent name collisions
+    let p_body_chaos_config = chaos_config;
+
+    let uri_str = format!("{}/add_chaos", configuration.base_path);
+    let mut req_builder = configuration
+        .client
+        .request(reqwest::Method::POST, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    req_builder = req_builder.json(&p_body_chaos_config);
+
+    let req = req_builder.build()?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+
+    if !status.is_client_error() && !status.is_server_error() {
+        Ok(())
+    } else {
+        let content = resp.text().await?;
+        let entity: Option<AddChaosError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
+}
+
 pub async fn register_lib(
     configuration: &configuration::Configuration,
     registration_args: models::RegistrationArgs,
 ) -> Result<(), Error<RegisterLibError>> {
     // add a prefix to parameters to efficiently prevent name collisions
-    let p_registration_args = registration_args;
+    let p_body_registration_args = registration_args;
 
     let uri_str = format!("{}/register_lib", configuration.base_path);
     let mut req_builder = configuration
@@ -100,7 +142,7 @@ pub async fn register_lib(
     if let Some(ref user_agent) = configuration.user_agent {
         req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
     }
-    req_builder = req_builder.json(&p_registration_args);
+    req_builder = req_builder.json(&p_body_registration_args);
 
     let req = req_builder.build()?;
     let resp = configuration.client.execute(req).await?;
@@ -125,7 +167,7 @@ pub async fn start_actor(
     spawn_args: models::SpawnArgs,
 ) -> Result<models::RemoteActorInfo, Error<StartActorError>> {
     // add a prefix to parameters to efficiently prevent name collisions
-    let p_spawn_args = spawn_args;
+    let p_body_spawn_args = spawn_args;
 
     let uri_str = format!("{}/start_actor", configuration.base_path);
     let mut req_builder = configuration
@@ -135,7 +177,7 @@ pub async fn start_actor(
     if let Some(ref user_agent) = configuration.user_agent {
         req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
     }
-    req_builder = req_builder.json(&p_spawn_args);
+    req_builder = req_builder.json(&p_body_spawn_args);
 
     let req = req_builder.build()?;
     let resp = configuration.client.execute(req).await?;
@@ -152,8 +194,8 @@ pub async fn start_actor(
         let content = resp.text().await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => Err(Error::from(serde_json::Error::custom("Received `text/plain` content type response that cannot be converted to `models::RemoteActorInfo`"))),
-            ContentType::Unsupported(unknown_type) => Err(Error::from(serde_json::Error::custom(format!("Received `{unknown_type}` content type response that cannot be converted to `models::RemoteActorInfo`")))),
+            ContentType::Text => return Err(Error::from(serde_json::Error::custom("Received `text/plain` content type response that cannot be converted to `models::RemoteActorInfo`"))),
+            ContentType::Unsupported(unknown_type) => return Err(Error::from(serde_json::Error::custom(format!("Received `{unknown_type}` content type response that cannot be converted to `models::RemoteActorInfo`")))),
         }
     } else {
         let content = resp.text().await?;
@@ -171,7 +213,7 @@ pub async fn stop_actor(
     remote_actor_info: models::RemoteActorInfo,
 ) -> Result<(), Error<StopActorError>> {
     // add a prefix to parameters to efficiently prevent name collisions
-    let p_remote_actor_info = remote_actor_info;
+    let p_body_remote_actor_info = remote_actor_info;
 
     let uri_str = format!("{}/stop_actor", configuration.base_path);
     let mut req_builder = configuration
@@ -181,7 +223,7 @@ pub async fn stop_actor(
     if let Some(ref user_agent) = configuration.user_agent {
         req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
     }
-    req_builder = req_builder.json(&p_remote_actor_info);
+    req_builder = req_builder.json(&p_body_remote_actor_info);
 
     let req = req_builder.build()?;
     let resp = configuration.client.execute(req).await?;

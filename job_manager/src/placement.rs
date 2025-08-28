@@ -1,3 +1,4 @@
+use ordered_float::OrderedFloat;
 use serde::Deserialize;
 use std::{
     collections::{BTreeMap, HashMap},
@@ -44,16 +45,38 @@ pub struct LogicalOp {
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ChaosOp {
     Crash {
-        start_ms: u32,
+        start_ms: Option<u32>,
     },
     MsgLoss {
-        start_ms: u32,
-        probability: i32, // should change to f32, but issue with derive(Eq)
+        start_ms: Option<u32>,
+        stop_ms: Option<u32>,
+        probability: OrderedFloat<f32>, // should change to f32, but issue with derive(Eq)
     },
+    //? Add probabiltity field for this?
+    //? duplication factor instead of rate? (confusing terms)
     MsgDuplication {
-        start_ms: u32,
-        rate: i32, // should change to f32, but issue with derive(Eq)
+        start_ms: Option<u32>,
+        stop_ms: Option<u32>,
+        factor: i32,
+        probability: OrderedFloat<f32>,
     },
+}
+
+impl ChaosOp {
+    pub fn start_ms(&self) -> u32 {
+        match self {
+            ChaosOp::Crash { start_ms, .. }
+            | ChaosOp::MsgLoss { start_ms, .. }
+            | ChaosOp::MsgDuplication { start_ms, .. } => start_ms.unwrap_or(0),
+        }
+    }
+
+    pub fn stop_ms(&self) -> Option<u32> {
+        match self {
+            ChaosOp::Crash { .. } => None,
+            ChaosOp::MsgLoss { stop_ms, .. } | ChaosOp::MsgDuplication { stop_ms, .. } => *stop_ms,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -61,7 +84,8 @@ pub struct PhysicalOp {
     pub nodename: String,
     pub actor_name: String,
     pub replicas: Option<u32>,
-    pub chaos: Option<ChaosOp>,
+    //? Change to list (/map) of chaos ops for multiple choas ops per actor
+    pub chaos: Option<Vec<ChaosOp>>,
     #[serde(flatten)]
     pub payload: HashMap<String, serde_json::Value>,
 }

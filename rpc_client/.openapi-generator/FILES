@@ -1,7 +1,10 @@
 .gitignore
+.openapi-generator-ignore
 .travis.yml
 Cargo.toml
 README.md
+docs/ChaosConfig.md
+docs/ChaosType.md
 docs/DefaultApi.md
 docs/RegistrationArgs.md
 docs/RemoteActorInfo.md
@@ -11,6 +14,8 @@ src/apis/configuration.rs
 src/apis/default_api.rs
 src/apis/mod.rs
 src/lib.rs
+src/models/chaos_config.rs
+src/models/chaos_type.rs
 src/models/mod.rs
 src/models/registration_args.rs
 src/models/remote_actor_info.rs
