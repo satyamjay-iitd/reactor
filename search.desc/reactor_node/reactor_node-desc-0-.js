@@ -1,1 +1,0 @@
-searchState.loadedDescShard("reactor_node", 0, "One Node Controller task will be spawned on each physical …")

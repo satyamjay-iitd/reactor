@@ -1,1 +1,0 @@
-searchState.loadedDescShard("reactor_nctrl", 0, "a generic node controller. use this if you dont intend to …\nDirectory path\nReturns the argument unchanged.\nCalls <code>U::from(self)</code>.\nPort to run the reactor node on")
