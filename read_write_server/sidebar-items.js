@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["setup_shared_logger_ref"]};

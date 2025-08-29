@@ -1,0 +1,1 @@
+searchState.loadedDescShard("ping_pong_actor", 0, "Returns the argument unchanged.\nCalls <code>U::from(self)</code>.\nhelper function to install the SharedLogger public …")

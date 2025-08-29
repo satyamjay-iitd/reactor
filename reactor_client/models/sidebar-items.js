@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["registration_args","remote_actor_info","spawn_args"]};

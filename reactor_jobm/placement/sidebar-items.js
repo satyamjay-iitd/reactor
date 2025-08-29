@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["LibInfo","LogicalOp","ManualPlacementManager","NodeInfo","PhysicalOp","Placement"],"trait":["PlacementManager"],"type":["Hostname"]};
