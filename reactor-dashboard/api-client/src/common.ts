@@ -12,16 +12,16 @@
  * Do not edit the class manually.
  */
 
-import type { Configuration } from "./configuration";
-import type { RequestArgs } from "./base";
-import type { AxiosInstance, AxiosResponse } from "axios";
-import { RequiredError } from "./base";
+import type { Configuration } from './configuration';
+import type { RequestArgs } from './base';
+import type { AxiosInstance, AxiosResponse } from 'axios';
+import { RequiredError } from './base';
 
 /**
  *
  * @export
  */
-export const DUMMY_BASE_URL = "https://example.com";
+export const DUMMY_BASE_URL = 'https://example.com';
 
 /**
  *
@@ -52,7 +52,7 @@ export const setApiKeyToObject = async function (
 ) {
   if (configuration && configuration.apiKey) {
     const localVarApiKeyValue =
-      typeof configuration.apiKey === "function"
+      typeof configuration.apiKey === 'function'
         ? await configuration.apiKey(keyParamName)
         : await configuration.apiKey;
     object[keyParamName] = localVarApiKeyValue;
@@ -68,7 +68,7 @@ export const setBasicAuthToObject = function (
   configuration?: Configuration,
 ) {
   if (configuration && (configuration.username || configuration.password)) {
-    object["auth"] = {
+    object['auth'] = {
       username: configuration.username,
       password: configuration.password,
     };
@@ -85,10 +85,10 @@ export const setBearerAuthToObject = async function (
 ) {
   if (configuration && configuration.accessToken) {
     const accessToken =
-      typeof configuration.accessToken === "function"
+      typeof configuration.accessToken === 'function'
         ? await configuration.accessToken()
         : await configuration.accessToken;
-    object["Authorization"] = "Bearer " + accessToken;
+    object['Authorization'] = 'Bearer ' + accessToken;
   }
 };
 
@@ -104,20 +104,20 @@ export const setOAuthToObject = async function (
 ) {
   if (configuration && configuration.accessToken) {
     const localVarAccessTokenValue =
-      typeof configuration.accessToken === "function"
+      typeof configuration.accessToken === 'function'
         ? await configuration.accessToken(name, scopes)
         : await configuration.accessToken;
-    object["Authorization"] = "Bearer " + localVarAccessTokenValue;
+    object['Authorization'] = 'Bearer ' + localVarAccessTokenValue;
   }
 };
 
 function setFlattenedQueryParams(
   urlSearchParams: URLSearchParams,
   parameter: any,
-  key: string = "",
+  key: string = '',
 ): void {
   if (parameter == null) return;
-  if (typeof parameter === "object") {
+  if (typeof parameter === 'object') {
     if (Array.isArray(parameter)) {
       (parameter as any[]).forEach((item) =>
         setFlattenedQueryParams(urlSearchParams, item, key),
@@ -127,7 +127,7 @@ function setFlattenedQueryParams(
         setFlattenedQueryParams(
           urlSearchParams,
           parameter[currentKey],
-          `${key}${key !== "" ? "." : ""}${currentKey}`,
+          `${key}${key !== '' ? '.' : ''}${currentKey}`,
         ),
       );
     }
@@ -159,14 +159,14 @@ export const serializeDataIfNeeded = function (
   requestOptions: any,
   configuration?: Configuration,
 ) {
-  const nonString = typeof value !== "string";
+  const nonString = typeof value !== 'string';
   const needsSerialization =
     nonString && configuration && configuration.isJsonMime
-      ? configuration.isJsonMime(requestOptions.headers["Content-Type"])
+      ? configuration.isJsonMime(requestOptions.headers['Content-Type'])
       : nonString;
   return needsSerialization
     ? JSON.stringify(value !== undefined ? value : {})
-    : value || "";
+    : value || '';
 };
 
 /**
@@ -194,7 +194,7 @@ export const createRequestFunction = function (
     const axiosRequestArgs = {
       ...axiosArgs.options,
       url:
-        (axios.defaults.baseURL ? "" : (configuration?.basePath ?? basePath)) +
+        (axios.defaults.baseURL ? '' : (configuration?.basePath ?? basePath)) +
         axiosArgs.url,
     };
     return axios.request<T, R>(axiosRequestArgs);

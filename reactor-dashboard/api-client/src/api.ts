@@ -12,9 +12,9 @@
  * Do not edit the class manually.
  */
 
-import type { Configuration } from "./configuration";
-import type { AxiosPromise, AxiosInstance, RawAxiosRequestConfig } from "axios";
-import globalAxios from "axios";
+import type { Configuration } from './configuration';
+import type { AxiosPromise, AxiosInstance, RawAxiosRequestConfig } from 'axios';
+import globalAxios from 'axios';
 // Some imports not used depending on template conditions
 // @ts-ignore
 import {
@@ -28,8 +28,8 @@ import {
   serializeDataIfNeeded,
   toPathString,
   createRequestFunction,
-} from "./common";
-import type { RequestArgs } from "./base";
+} from './common';
+import type { RequestArgs } from './base';
 // @ts-ignore
 import {
   BASE_PATH,
@@ -37,7 +37,7 @@ import {
   BaseAPI,
   RequiredError,
   operationServerMap,
-} from "./base";
+} from './base';
 
 /**
  *
@@ -153,7 +153,7 @@ export const DefaultApiAxiosParamCreator = function (
       options: RawAxiosRequestConfig = {},
     ): Promise<RequestArgs> => {
       // verify required parameter 'remoteActorInfo' is not null or undefined
-      assertParamExists("actorAdded", "remoteActorInfo", remoteActorInfo);
+      assertParamExists('actorAdded', 'remoteActorInfo', remoteActorInfo);
       const localVarPath = `/actor_added`;
       // use dummy base URL string because the URL constructor only accepts absolute URLs.
       const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
@@ -163,14 +163,14 @@ export const DefaultApiAxiosParamCreator = function (
       }
 
       const localVarRequestOptions = {
-        method: "POST",
+        method: 'POST',
         ...baseOptions,
         ...options,
       };
       const localVarHeaderParameter = {} as any;
       const localVarQueryParameter = {} as any;
 
-      localVarHeaderParameter["Content-Type"] = "application/json";
+      localVarHeaderParameter['Content-Type'] = 'application/json';
 
       setSearchParams(localVarUrlObj, localVarQueryParameter);
       let headersFromBaseOptions =
@@ -208,7 +208,7 @@ export const DefaultApiAxiosParamCreator = function (
       }
 
       const localVarRequestOptions = {
-        method: "GET",
+        method: 'GET',
         ...baseOptions,
         ...options,
       };
@@ -240,7 +240,7 @@ export const DefaultApiAxiosParamCreator = function (
       options: RawAxiosRequestConfig = {},
     ): Promise<RequestArgs> => {
       // verify required parameter 'registrationArgs' is not null or undefined
-      assertParamExists("registerLib", "registrationArgs", registrationArgs);
+      assertParamExists('registerLib', 'registrationArgs', registrationArgs);
       const localVarPath = `/register_lib`;
       // use dummy base URL string because the URL constructor only accepts absolute URLs.
       const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
@@ -250,14 +250,14 @@ export const DefaultApiAxiosParamCreator = function (
       }
 
       const localVarRequestOptions = {
-        method: "POST",
+        method: 'POST',
         ...baseOptions,
         ...options,
       };
       const localVarHeaderParameter = {} as any;
       const localVarQueryParameter = {} as any;
 
-      localVarHeaderParameter["Content-Type"] = "application/json";
+      localVarHeaderParameter['Content-Type'] = 'application/json';
 
       setSearchParams(localVarUrlObj, localVarQueryParameter);
       let headersFromBaseOptions =
@@ -289,7 +289,7 @@ export const DefaultApiAxiosParamCreator = function (
       options: RawAxiosRequestConfig = {},
     ): Promise<RequestArgs> => {
       // verify required parameter 'spawnArgs' is not null or undefined
-      assertParamExists("startActor", "spawnArgs", spawnArgs);
+      assertParamExists('startActor', 'spawnArgs', spawnArgs);
       const localVarPath = `/start_actor`;
       // use dummy base URL string because the URL constructor only accepts absolute URLs.
       const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
@@ -299,14 +299,14 @@ export const DefaultApiAxiosParamCreator = function (
       }
 
       const localVarRequestOptions = {
-        method: "POST",
+        method: 'POST',
         ...baseOptions,
         ...options,
       };
       const localVarHeaderParameter = {} as any;
       const localVarQueryParameter = {} as any;
 
-      localVarHeaderParameter["Content-Type"] = "application/json";
+      localVarHeaderParameter['Content-Type'] = 'application/json';
 
       setSearchParams(localVarUrlObj, localVarQueryParameter);
       let headersFromBaseOptions =
@@ -344,7 +344,7 @@ export const DefaultApiAxiosParamCreator = function (
       }
 
       const localVarRequestOptions = {
-        method: "POST",
+        method: 'POST',
         ...baseOptions,
         ...options,
       };
@@ -393,7 +393,7 @@ export const DefaultApiFp = function (configuration?: Configuration) {
       );
       const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
       const localVarOperationServerBasePath =
-        operationServerMap["DefaultApi.actorAdded"]?.[
+        operationServerMap['DefaultApi.actorAdded']?.[
           localVarOperationServerIndex
         ]?.url;
       return (axios, basePath) =>
@@ -418,7 +418,7 @@ export const DefaultApiFp = function (configuration?: Configuration) {
         await localVarAxiosParamCreator.getStatus(options);
       const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
       const localVarOperationServerBasePath =
-        operationServerMap["DefaultApi.getStatus"]?.[
+        operationServerMap['DefaultApi.getStatus']?.[
           localVarOperationServerIndex
         ]?.url;
       return (axios, basePath) =>
@@ -447,7 +447,7 @@ export const DefaultApiFp = function (configuration?: Configuration) {
       );
       const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
       const localVarOperationServerBasePath =
-        operationServerMap["DefaultApi.registerLib"]?.[
+        operationServerMap['DefaultApi.registerLib']?.[
           localVarOperationServerIndex
         ]?.url;
       return (axios, basePath) =>
@@ -479,7 +479,7 @@ export const DefaultApiFp = function (configuration?: Configuration) {
       );
       const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
       const localVarOperationServerBasePath =
-        operationServerMap["DefaultApi.startActor"]?.[
+        operationServerMap['DefaultApi.startActor']?.[
           localVarOperationServerIndex
         ]?.url;
       return (axios, basePath) =>
@@ -504,7 +504,7 @@ export const DefaultApiFp = function (configuration?: Configuration) {
         await localVarAxiosParamCreator.stopAllActors(options);
       const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
       const localVarOperationServerBasePath =
-        operationServerMap["DefaultApi.stopAllActors"]?.[
+        operationServerMap['DefaultApi.stopAllActors']?.[
           localVarOperationServerIndex
         ]?.url;
       return (axios, basePath) =>

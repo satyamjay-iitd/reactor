@@ -1,12 +1,11 @@
 # RegistrationArgs
 
-
 ## Properties
 
-Name | Type | Description | Notes
------------- | ------------- | ------------- | -------------
-**args** | **{ [key: string]: any; }** |  | [default to undefined]
-**lib_name** | **string** |  | [default to undefined]
+| Name         | Type                        | Description | Notes                  |
+| ------------ | --------------------------- | ----------- | ---------------------- |
+| **args**     | **{ [key: string]: any; }** |             | [default to undefined] |
+| **lib_name** | **string**                  |             | [default to undefined] |
 
 ## Example
 
@@ -14,8 +13,8 @@ Name | Type | Description | Notes
 import { RegistrationArgs } from './api';
 
 const instance: RegistrationArgs = {
-    args,
-    lib_name,
+  args,
+  lib_name,
 };
 ```
 
