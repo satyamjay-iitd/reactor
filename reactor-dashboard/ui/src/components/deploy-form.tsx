@@ -16,7 +16,6 @@ import {
   SelectContent,
   SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
@@ -135,16 +134,16 @@ function OpToNodes(nodes: Node[]): Record<string, string[]> {
   const opToNodes: Record<string, string[]> = {}
 
   for (const node of nodes) {
-    for (const op of node.data.available_ops) {
-      if (!opToNodes[op]) {
-        opToNodes[op] = []
+    for (const ops of Object.values(node.data.loaded_libs)) {
+      for (const op of ops){
+        if (!opToNodes[op]) {
+          opToNodes[op] = []
+        }
+        opToNodes[op].push(node.hostname)
       }
-      opToNodes[op].push(node.hostname)
     }
   }
-
   return opToNodes
-  
 }
 
 export default function JobRunner({ nodes }: DialogDemoProps) {

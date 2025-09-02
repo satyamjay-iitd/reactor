@@ -1,7 +1,6 @@
 export interface NodeData {
   actors: string[];
-  loaded_libs: string[];
-  available_ops: string[];
+  loaded_libs: { [key: string]: Array<string>; };
   error: string | null;
   latencyMs: number | null;
   lastUpdated: string | null;

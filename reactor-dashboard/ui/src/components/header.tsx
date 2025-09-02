@@ -58,11 +58,10 @@ function AddNodeDialog({ onAddNode }: AddNodeDialogProps) {
       port: Number(port),
       data: {
           actors: [],
-          loaded_libs: [],
+          loaded_libs: {},
           error: "Not polled yet",
           latencyMs: null,
           lastUpdated: null,
-          available_ops: []
       },
     };
 
