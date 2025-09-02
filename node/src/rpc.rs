@@ -215,7 +215,7 @@ async fn stop_all_actors(State(state): State<Arc<AppState>>) -> impl IntoRespons
 #[derive(Serialize, ToSchema)]
 struct StatusResponse {
     actors: Vec<String>,
-    loaded_libs: Vec<String>,
+    loaded_libs: HashMap<String, Vec<String>>,
 }
 #[cfg_attr(feature="swagger", utoipa::path(
     get,

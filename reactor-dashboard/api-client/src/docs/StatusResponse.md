@@ -1,11 +1,12 @@
 # StatusResponse
 
+
 ## Properties
 
-| Name            | Type                    | Description | Notes                  |
-| --------------- | ----------------------- | ----------- | ---------------------- |
-| **actors**      | **Array&lt;string&gt;** |             | [default to undefined] |
-| **loaded_libs** | **Array&lt;string&gt;** |             | [default to undefined] |
+Name | Type | Description | Notes
+------------ | ------------- | ------------- | -------------
+**actors** | **Array&lt;string&gt;** |  | [default to undefined]
+**loaded_libs** | **{ [key: string]: Array&lt;string&gt;; }** |  | [default to undefined]
 
 ## Example
 
@@ -13,8 +14,8 @@
 import { StatusResponse } from './api';
 
 const instance: StatusResponse = {
-  actors,
-  loaded_libs,
+    actors,
+    loaded_libs,
 };
 ```
 

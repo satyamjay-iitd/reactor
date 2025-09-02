@@ -1,13 +1,14 @@
 # SpawnArgs
 
+
 ## Properties
 
-| Name              | Type                        | Description | Notes                  |
-| ----------------- | --------------------------- | ----------- | ---------------------- |
-| **actor_name**    | **string**                  |             | [default to undefined] |
-| **lib_name**      | **string**                  |             | [default to undefined] |
-| **operator_name** | **string**                  |             | [default to undefined] |
-| **payload**       | **{ [key: string]: any; }** |             | [default to undefined] |
+Name | Type | Description | Notes
+------------ | ------------- | ------------- | -------------
+**actor_name** | **string** |  | [default to undefined]
+**lib_name** | **string** |  | [default to undefined]
+**operator_name** | **string** |  | [default to undefined]
+**payload** | **{ [key: string]: any; }** |  | [default to undefined]
 
 ## Example
 
@@ -15,10 +16,10 @@
 import { SpawnArgs } from './api';
 
 const instance: SpawnArgs = {
-  actor_name,
-  lib_name,
-  operator_name,
-  payload,
+    actor_name,
+    lib_name,
+    operator_name,
+    payload,
 };
 ```
 

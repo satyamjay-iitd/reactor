@@ -16,11 +16,14 @@ pub struct StatusResponse {
     #[serde(rename = "actors")]
     pub actors: Vec<String>,
     #[serde(rename = "loaded_libs")]
-    pub loaded_libs: Vec<String>,
+    pub loaded_libs: std::collections::HashMap<String, Vec<String>>,
 }
 
 impl StatusResponse {
-    pub fn new(actors: Vec<String>, loaded_libs: Vec<String>) -> StatusResponse {
+    pub fn new(
+        actors: Vec<String>,
+        loaded_libs: std::collections::HashMap<String, Vec<String>>,
+    ) -> StatusResponse {
         StatusResponse {
             actors,
             loaded_libs,

@@ -1,12 +1,13 @@
 # RemoteActorInfo
 
+
 ## Properties
 
-| Name         | Type       | Description | Notes                  |
-| ------------ | ---------- | ----------- | ---------------------- |
-| **hostname** | **string** |             | [default to undefined] |
-| **name**     | **string** |             | [default to undefined] |
-| **port**     | **number** |             | [default to undefined] |
+Name | Type | Description | Notes
+------------ | ------------- | ------------- | -------------
+**hostname** | **string** |  | [default to undefined]
+**name** | **string** |  | [default to undefined]
+**port** | **number** |  | [default to undefined]
 
 ## Example
 
@@ -14,9 +15,9 @@
 import { RemoteActorInfo } from './api';
 
 const instance: RemoteActorInfo = {
-  hostname,
-  name,
-  port,
+    hostname,
+    name,
+    port,
 };
 ```
 

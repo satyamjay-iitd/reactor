@@ -39,6 +39,7 @@ function App() {
           const newData: NodeData = {
             actors: Array.isArray(res.data.actors) ? res.data.actors : [],
             loaded_libs: Array.isArray(res.data.loaded_libs) ? res.data.loaded_libs : [],
+            available_ops: [],
             error: null,
             latencyMs: null,
             lastUpdated: new Date().toISOString(),
@@ -48,6 +49,7 @@ function App() {
           const newData: NodeData = {
             actors: [],
             loaded_libs: [],
+            available_ops: [],
             error: error.message ?? "Unknown error",
             latencyMs: null,
             lastUpdated: new Date().toISOString(),
@@ -86,7 +88,6 @@ function App() {
     [nodes],
   );
 
-  console.log(nodes);
   return (
     <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
       <SidebarProvider
@@ -105,6 +106,7 @@ function App() {
             setPollingEnabled={setPollingEnabled}
             pollOnce={pollOnce}
             POLL_MS={POLL_MS}
+            nodes={nodes}
             lastSweep={lastSweep}
             setNodes={setNodes}
           />

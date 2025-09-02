@@ -1,5 +1,5 @@
 import { ModeToggle } from "@/components/mode-toggle";
-import DialogDemo from "@/components/deploy-form";
+import JobRunner from "@/components/deploy-form";
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
@@ -24,7 +24,8 @@ interface HeaderProps {
   setPollingEnabled: (value: boolean) => void;
   pollOnce: () => void;
   POLL_MS: number;
-  lastSweep: string | null; // timestamp in ms, or null if not available
+  lastSweep: string | null;
+  nodes: Node[];
   setNodes: React.Dispatch<React.SetStateAction<Node[]>>;
 }
 
@@ -56,11 +57,12 @@ function AddNodeDialog({ onAddNode }: AddNodeDialogProps) {
       hostname,
       port: Number(port),
       data: {
-        actors: [],
-        loaded_libs: [],
-        error: "Not polled yet",
-        latencyMs: null,
-        lastUpdated: null,
+          actors: [],
+          loaded_libs: [],
+          error: "Not polled yet",
+          latencyMs: null,
+          lastUpdated: null,
+          available_ops: []
       },
     };
 
@@ -104,12 +106,14 @@ function AddNodeDialog({ onAddNode }: AddNodeDialogProps) {
   );
 }
 
+
 export default function Header({
   pollingEnabled,
   setPollingEnabled,
   pollOnce,
   POLL_MS,
   lastSweep,
+  nodes,
   setNodes,
 }: HeaderProps) {
   return (
@@ -157,7 +161,7 @@ export default function Header({
             Refresh now
           </Button>
 
-          <DialogDemo/>
+          <JobRunner nodes={nodes} />
 
           <ModeToggle></ModeToggle>
         </div>

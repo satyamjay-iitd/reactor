@@ -29,7 +29,7 @@ use rpc::webserver;
 mod op_lib_manager;
 
 pub type NodeAddr = &'static str;
-pub type ActorSpawnCB = fn(RuntimeCtx, HashMap<String, serde_json::Value>);
+// pub type ActorSpawnCB = fn(RuntimeCtx, HashMap<String, serde_json::Value>);
 
 pub type SetupSharedLogger = fn(SharedLogger);
 
@@ -48,7 +48,7 @@ pub(crate) struct RegisterResult {}
 #[derive(Debug)]
 pub(crate) struct NodeStatus {
     actors: Vec<String>,
-    loaded_libs: Vec<String>,
+    loaded_libs: HashMap<String, Vec<String>>,
 }
 
 /// Global Controller
@@ -201,6 +201,8 @@ async fn handle_job_req(
 
             let lib = op_lib.get_lib(&lib_name);
             unsafe {
+                use reactor_actor::ActorSpawnCB;
+
                 let shared_logger: libloading::Symbol<SetupSharedLogger> =
                     lib.get(b"setup_shared_logger_ref").unwrap();
                 let logger = SharedLogger::new();

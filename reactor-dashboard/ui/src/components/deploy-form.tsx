@@ -1,31 +1,11 @@
 "use client";
 
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import * as z from "zod";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
+import { useState } from "react";
+
 import {
   Sheet,
   SheetClose,
   SheetContent,
-  SheetDescription,
   SheetFooter,
   SheetHeader,
   SheetTitle,
@@ -44,91 +24,190 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea"
+import { ManualPlacementManager, type PhysicalOp } from "@/reactor-ctrl";
+import { Toaster } from "@/components/ui/sonner";
+import { toast } from "sonner"
+import type { Node } from "@/types";
 
-// Schema to validate JSON
-const jsonSchema = z.object({
-  jsonText: z
-    .string()
-    .refine(
-      (val) => {
-        try {
-          JSON.parse(val);
-          return true;
-        } catch {
-          return false;
-        }
-      },
-      { message: "Invalid JSON" }
-    ),
-});
-
-type FormValues = z.infer<typeof jsonSchema>;
+type SelectOpProps = {
+  items: string[]
+  placeholder?: string
+  onChange: any
+}
 
 
-function SelectOp() {
+export function SelectOp({ items, placeholder = "Select Op", onChange }: SelectOpProps) {
   return (
-    <Select>
+    <Select onValueChange={onChange}>
       <SelectTrigger className="w-[180px]">
-        <SelectValue placeholder="Select Op" />
+        <SelectValue placeholder={placeholder} />
       </SelectTrigger>
       <SelectContent>
         <SelectGroup>
-          <SelectLabel>Op</SelectLabel>
-          <SelectItem value="apple">Apple</SelectItem>
-          <SelectItem value="banana">Banana</SelectItem>
-          <SelectItem value="blueberry">Blueberry</SelectItem>
-          <SelectItem value="grapes">Grapes</SelectItem>
-          <SelectItem value="pineapple">Pineapple</SelectItem>
+          {items.map((item) => (
+            <SelectItem key={item} value={item}>
+              {item}
+            </SelectItem>
+          ))}
         </SelectGroup>
       </SelectContent>
     </Select>
   )
 }
 
+type PlaceOnProps = {
+  items: string[]
+  placeholder?: string
+  onChange: any
+}
 
-function PlaceOn() {
+function PlaceOn({ items, placeholder = "Place On", onChange }: PlaceOnProps) {
   return (
-    <Select>
+    <Select onValueChange={onChange}>
       <SelectTrigger className="w-[180px]">
-        <SelectValue placeholder="Place On" />
+        <SelectValue placeholder={placeholder} />
       </SelectTrigger>
       <SelectContent>
         <SelectGroup>
-          <SelectLabel>Node</SelectLabel>
-          <SelectItem value="apple">Apple</SelectItem>
-          <SelectItem value="banana">Banana</SelectItem>
-          <SelectItem value="blueberry">Blueberry</SelectItem>
-          <SelectItem value="grapes">Grapes</SelectItem>
-          <SelectItem value="pineapple">Pineapple</SelectItem>
+          {items.map((item) => (
+            <SelectItem key={item} value={item}>
+              {item}
+            </SelectItem>
+          ))}
         </SelectGroup>
       </SelectContent>
     </Select>
   )
 }
 
-function RemovePlacement() {
+function RemovePlacement({
+  items,
+  placement,
+  setPlacement,
+}: {
+  items: Set<string>;
+  placement: ManualPlacementManager;
+  setPlacement: React.Dispatch<React.SetStateAction<ManualPlacementManager>>;
+}) {
+  const [selected, setSelected] = useState<string | null>(null);
+
   return (
-    <Select>
-      <SelectTrigger className="w-[180px]">
-        <SelectValue placeholder="Unplace From" />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectGroup>
-          <SelectLabel>Node</SelectLabel>
-          <SelectItem value="apple">Apple</SelectItem>
-          <SelectItem value="banana">Banana</SelectItem>
-          <SelectItem value="blueberry">Blueberry</SelectItem>
-          <SelectItem value="grapes">Grapes</SelectItem>
-          <SelectItem value="pineapple">Pineapple</SelectItem>
-        </SelectGroup>
-      </SelectContent>
-    </Select>
-  )
+    <div className="flex gap-2 items-center">
+      <Select value={selected ?? ""} onValueChange={setSelected}>
+        <SelectTrigger className="w-[180px]">
+          <SelectValue placeholder="Unplace" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            {[...items].map((item) => (
+              <SelectItem key={item} value={item}>
+                {item}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+
+      <Button
+        variant="destructive"
+        disabled={!selected}
+        onClick={() => {
+          if (selected) {
+            console.log("Unplacing:", selected);
+            const newPlacement = placement.clone();
+            newPlacement.remove_actor(selected);
+            setPlacement(newPlacement);
+            setSelected(null);
+          }
+        }}
+      >
+        UnPlace
+      </Button>
+    </div>
+  );
 }
 
-export default function DialogDemo() {
- return (
+type DialogDemoProps = {
+  nodes: Node[]
+}
+
+function OpToNodes(nodes: Node[]): Record<string, string[]> {
+  const opToNodes: Record<string, string[]> = {}
+
+  for (const node of nodes) {
+    for (const op of node.data.available_ops) {
+      if (!opToNodes[op]) {
+        opToNodes[op] = []
+      }
+      opToNodes[op].push(node.hostname)
+    }
+  }
+
+  return opToNodes
+  
+}
+
+export default function JobRunner({ nodes }: DialogDemoProps) {
+  const [selectedOp, setSelectedOp] = useState<string | null>(null);
+  const [selectedNode, setSelectedNode] = useState<string | null>(null);
+  const [actorName, setActorName] = useState<string | null>(null);
+  const [numActors, setNumActors] = useState<number>(1);
+  const [args, setArgs] = useState<Record<string, any>>({});
+  const [rawArgs, setRawArgs] = useState("{}",);
+  const [placement, setPlacement] = useState<ManualPlacementManager>(new ManualPlacementManager());
+  const [isJsonValid, setIsJsonValid] = useState<boolean>(true);
+
+  const opToNodes = OpToNodes(nodes);
+  const allOps = Object.keys(opToNodes);
+  const nodesForOp = selectedOp ? opToNodes[selectedOp] ?? [] : []
+
+  const handlePlace = () => {
+    if (!selectedOp) {
+      toast.error("Please select an Op");
+      return;
+    }
+    if (!actorName) {
+      toast.error("Please Provide Actor Name");
+      return;
+    }
+    if (!selectedNode) {
+      toast.error("Please select a Node");
+      return;
+    }
+    if (!isJsonValid) {
+      toast.error("Provide valid Json for Op Args");
+      return;
+    }
+
+    const newPlacement = placement.clone();
+    const physicalOps: PhysicalOp[] = [];
+
+    if (numActors == 1){
+      const op: PhysicalOp = {
+        nodename: selectedNode,
+        actorName: `${actorName}`,
+        payload: args,
+      };
+      physicalOps.push(op);
+    }else{
+      for (let i = 0; i < numActors; i++) {
+        const op: PhysicalOp = {
+          nodename: selectedNode,
+          actorName: `${actorName}${i + 1}`,
+          payload: args,
+        };
+        physicalOps.push(op);
+      }
+    }
+
+    physicalOps.forEach((op) => newPlacement.add_op(selectedOp, op));
+
+    setPlacement(newPlacement);
+  };
+
+  return (
     <Sheet>
+      <Toaster position="top-center" richColors/>
       <SheetTrigger asChild>
         <Button>Deploy Job</Button>
       </SheetTrigger>
@@ -137,33 +216,76 @@ export default function DialogDemo() {
           <SheetTitle>Deploy Job</SheetTitle>
         </SheetHeader>
         <div className="grid flex-1 auto-rows-min gap-6 px-4">
-          <SelectOp/>
+          <SelectOp items={[...allOps]} onChange={setSelectedOp} />
 
           <div className="grid gap-3">
-            <Label htmlFor="oparg-json">Op Arg JSON</Label>
-            <Textarea id="oparg-json" name="oparg_json" defaultValue="{}" required/>
+            <Label htmlFor="job-name">Actor Name Prefix</Label>
+            <Input
+              id="actor-name"
+              name="actor_name"
+              value={actorName ?? ""}
+              onChange={(e) => setActorName(e.target.value)}
+            />
           </div>
 
           <div className="flex items-center space-x-2">
-            <PlaceOn />
-            <Input type="number" placeholder="1" className="w-20" />
-            <Button>Place</Button>
+            <PlaceOn items={nodesForOp} onChange={setSelectedNode} />
+            <Input
+              type="number"
+              placeholder="1"
+              className="w-20"
+              min={1}
+              value={numActors}
+              onChange={(e) => setNumActors(Number(e.target.value))}
+            />
+            <Button onClick={handlePlace}>Place</Button>
+          </div>
+
+          <div className="grid gap-3">
+            <Label htmlFor="oparg-json">Op Arg JSON</Label>
+            <Textarea
+              id="oparg-json"
+              name="oparg_json"
+              value={rawArgs}
+              required
+              className={isJsonValid ? "" : "border-red-500 focus-visible:ring-red-500"}
+              onChange={(e) => {
+                const text = e.target.value;
+                setRawArgs(text);
+                try {
+                  const parsed = JSON.parse(text);
+                  setArgs(parsed);
+                  setIsJsonValid(true);
+                } catch {
+                  setArgs({});
+                  setIsJsonValid(false);
+                }
+              }}
+           />
           </div>
 
           <div className="flex items-center space-x-2 w-full">
-            <RemovePlacement className="flex-1" />
-            <Button variant="destructive">UnPlace</Button>
+            <RemovePlacement
+              items={placement.get_actors()}
+              placement={placement}
+              setPlacement={setPlacement}
+            />
           </div>
 
           <div className="grid gap-3">
             <Label htmlFor="job-json">Job JSON</Label>
-            <Textarea id="job-json" name="job_json" defaultValue="{}" disabled required/>
+            <Textarea
+              id="job-json"
+              name="job_json"
+              disabled required value={placement.mapToJson()}
+            />
           </div>
 
           <div className="grid gap-3">
-            <Label htmlFor="job-name">Name</Label>
+            <Label htmlFor="job-name">Job Name</Label>
             <Input id="job-name" name="job_name" defaultValue="" />
           </div>
+
 
         </div>
         <SheetFooter>
