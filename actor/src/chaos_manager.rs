@@ -25,14 +25,16 @@ impl ChaosManager {
         self.msg_duplication_probability = Some(probability);
     }
 
-    // pub fn unset_msg_loss(&mut self) {
-    //     self.msg_loss_probability = None;
-    // }
+    #[allow(dead_code)]
+    pub fn unset_msg_loss(&mut self) {
+        self.msg_loss_probability = None;
+    }
 
-    // pub fn unset_msg_duplication(&mut self) {
-    //     self.msg_duplication_factor = None;
-    //     self.msg_duplication_probability = None;
-    // }
+    #[allow(dead_code)]
+    pub fn unset_msg_duplication(&mut self) {
+        self.msg_duplication_factor = None;
+        self.msg_duplication_probability = None;
+    }
 
     pub fn apply_chaos<T: Clone>(&self, msg: T) -> Vec<T> {
         let mut rng = rand::rng();
@@ -44,19 +46,15 @@ impl ChaosManager {
             return vec![];
         }
 
-        let mut result = vec![msg.clone()];
-
         if let (Some(factor), Some(prob)) = (
             self.msg_duplication_factor,
             self.msg_duplication_probability,
         ) {
             if rng.random_bool(prob as f64) {
-                for _ in 1..factor {
-                    result.push(msg.clone());
-                }
+                return vec![msg; factor as usize];
             }
         }
 
-        result
+        vec![msg]
     }
 }

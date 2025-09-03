@@ -513,37 +513,24 @@ where
             controller_rx,
         ));
 
-        let _addr = ctx.addr;
+        let addr = ctx.addr;
         let mut chaos_manager = chaos_manager::ChaosManager::new();
         let proc_handle: JoinHandle<Result<(), ActorError>> =
             tokio::task::spawn_blocking(move || -> Result<(), ActorError> {
-                tracing::info!("[ACTOR][{}] Processor Started", _addr);
+                tracing::info!("[ACTOR][{}] Processor Started", addr);
                 loop {
                     match r2p_rx.recv() {
                         Some(R2PMsg::Msg(m, origin)) => {
                             let chaos_out = chaos_manager.apply_chaos(m);
                             let chaos_out_len = chaos_out.len();
-                            // // print len
-                            tracing::debug!(
-                                "[ACTOR][{}] Message Received from {} | After Chaos: {} messages",
-                                _addr,
-                                origin,
-                                chaos_out_len
-                            );
-                            tracing::debug!(
-                                "[ACTOR][{}] Chaos Flags - Msg Loss: {} | Msg Duplication: {}",
-                                _addr,
-                                chaos_manager.msg_loss_probability.unwrap_or(-1.0),
-                                chaos_manager.msg_duplication_factor.unwrap_or(1)
-                            );
                             if chaos_out_len > 1 {
-                                tracing::warn!(
+                                tracing::debug!(
                                     "[ACTOR][{}] Message Duplicated {} times",
-                                    _addr,
+                                    addr,
                                     chaos_out_len
                                 );
                             } else if chaos_out_len == 0 {
-                                tracing::warn!("[ACTOR][{}] Message Lost", _addr);
+                                tracing::debug!("[ACTOR][{}] Message Lost", addr);
                             }
                             for msg in chaos_out {
                                 let processed = processor.process(msg);
@@ -567,7 +554,7 @@ where
                         }) => {
                             tracing::info!(
                                 "[ACTOR][{}] Setting Msg Duplication: factor={}, probability={}",
-                                _addr,
+                                addr,
                                 factor,
                                 probability
                             );
@@ -576,7 +563,7 @@ where
                         Some(R2PMsg::SetMsgLoss { probability }) => {
                             tracing::info!(
                                 "[ACTOR][{}] Setting Msg Loss: probability={}",
-                                _addr,
+                                addr,
                                 probability
                             );
                             chaos_manager.set_msg_loss(probability);
@@ -586,7 +573,7 @@ where
                         }
                     }
                 }
-                tracing::info!("[ACTOR][{}] Processor Ended", _addr);
+                tracing::info!("[ACTOR][{}] Processor Ended", addr);
                 Ok(())
             });
         let tx_handle = tokio::spawn(tx(

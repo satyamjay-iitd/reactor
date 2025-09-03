@@ -103,7 +103,7 @@ impl NodeHandle {
                     kind: ChaosType::MsgLoss,
                     actor_name: actor.name.clone(),
                     factor: None,
-                    probability: Some(probability.into_inner()),
+                    probability: Some(probability),
                 },
 
                 ChaosOp::MsgDuplication {
@@ -114,7 +114,7 @@ impl NodeHandle {
                     kind: ChaosType::MsgDuplication,
                     actor_name: actor.name.clone(),
                     factor: Some(factor),
-                    probability: Some(probability.into_inner()),
+                    probability: Some(probability),
                 },
             };
             tokio::spawn(async move {

@@ -17,7 +17,7 @@ use std::fs;
 use std::path::PathBuf;
 use tokio::signal;
 
-#[derive(Debug, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Deserialize, PartialEq)]
 pub struct JobManifest {
     pub nodes: Vec<NodeInfo>,
     pub ops: Vec<LogicalOp>,
@@ -53,7 +53,6 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ordered_float::OrderedFloat;
     use reactor_jobm::placement::ChaosOp;
     use serde_json::json;
     use std::collections::HashMap;
@@ -123,7 +122,7 @@ port = 3000
                             },
                             ChaosOp::MsgLoss {
                                 start_ms: Some(10000),
-                                probability: OrderedFloat(0.1),
+                                probability: 0.1,
                                 stop_ms: None,
                             },
                         ]),

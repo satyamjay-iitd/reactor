@@ -1,4 +1,3 @@
-use ordered_float::OrderedFloat;
 use serde::Deserialize;
 use std::{
     collections::{BTreeMap, HashMap},
@@ -41,7 +40,7 @@ pub struct LogicalOp {
     pub lib_name: String,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ChaosOp {
     Crash {
@@ -50,15 +49,13 @@ pub enum ChaosOp {
     MsgLoss {
         start_ms: Option<u32>,
         stop_ms: Option<u32>,
-        probability: OrderedFloat<f32>, // should change to f32, but issue with derive(Eq)
+        probability: f32,
     },
-    //? Add probabiltity field for this?
-    //? duplication factor instead of rate? (confusing terms)
     MsgDuplication {
         start_ms: Option<u32>,
         stop_ms: Option<u32>,
         factor: u32,
-        probability: OrderedFloat<f32>,
+        probability: f32,
     },
 }
 
@@ -79,7 +76,7 @@ impl ChaosOp {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct PhysicalOp {
     pub nodename: String,
     pub actor_name: String,
@@ -95,7 +92,7 @@ pub trait PlacementManager {
     fn place(&self, op_info: &LogicalOp) -> impl Iterator<Item = PhysicalOp>;
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct ManualPlacementManager {
     pub map: HashMap<String, Vec<PhysicalOp>>,
 }
