@@ -3,7 +3,7 @@ pub use reactor_actor::setup_shared_logger_ref;
 use bincode::{Decode, Encode};
 
 use reactor_actor::codec::BincodeCodec;
-use reactor_actor::{BehaviourBuilder, RouteTo, RuntimeCtx, register_actor};
+use reactor_actor::{BehaviourBuilder, RouteTo, RuntimeCtx, actor};
 use reactor_macros::{DefaultPrio, Msg as DeriveMsg};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -81,7 +81,7 @@ lazy_static::lazy_static! {
     static ref RUNTIME: tokio::runtime::Runtime = tokio::runtime::Runtime::new().unwrap();
 }
 
-#[unsafe(no_mangle)]
+#[actor]
 pub fn pingpong(ctx: RuntimeCtx, mut payload: HashMap<String, serde_json::Value>) {
     let other_addr: String = payload
         .remove("other")
@@ -99,5 +99,3 @@ pub fn pingpong(ctx: RuntimeCtx, mut payload: HashMap<String, serde_json::Value>
             .unwrap();
     });
 }
-
-register_actor!(pingpong);

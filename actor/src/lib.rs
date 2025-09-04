@@ -25,6 +25,7 @@ mod send;
 
 pub use node_comm::{Connection, ControlInst, ControlReq, NodeComm};
 pub use reactor_channel::{HasPriority, MAX_PRIO};
+pub use reactor_macros::actor;
 
 pub type ActorSpawnCB = fn(RuntimeCtx, HashMap<String, serde_json::Value>);
 

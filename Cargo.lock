@@ -1523,6 +1523,7 @@ dependencies = [
  "inventory",
  "lazy_static",
  "log",
+ "reactor-macros",
  "serde_json",
  "socket2 0.6.0",
  "thiserror",
