@@ -23,7 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea"
-import { ManualPlacementManager, type PhysicalOp } from "@/reactor-ctrl";
+import { JobController, ManualPlacementManager, type PhysicalOp } from "@/reactor-ctrl";
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner"
 import type { Node } from "@/types";
@@ -204,11 +204,16 @@ export default function JobRunner({ nodes }: DialogDemoProps) {
     setPlacement(newPlacement);
   };
 
+  const handleDeploy = () =>{
+    let jc = new JobController(placement);
+    jc.startJob([...placement.get_actors()]);
+  };
+
   return (
     <Sheet>
       <Toaster position="top-center" richColors/>
       <SheetTrigger asChild>
-        <Button>Deploy Job</Button>
+        <Button onClick={handleDeploy}>Deploy Job</Button>
       </SheetTrigger>
       <SheetContent className="w-[1000px] sm:w-[1000px]">
         <SheetHeader>

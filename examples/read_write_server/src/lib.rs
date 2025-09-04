@@ -11,7 +11,7 @@ use writer::WriterIn;
 use crate::reader::{ReadAck, ReadOut, reader as reader_behaviour};
 use crate::server::server as server_behaviour;
 use crate::writer::{WriteAck, WriteOut, writer as writer_behaviour};
-use reactor_actor::RuntimeCtx;
+use reactor_actor::{RuntimeCtx, register_actor};
 use reactor_macros::msg_converter;
 use std::collections::HashMap;
 // //////////////////////////////////////////////////////////////////////////////
@@ -60,3 +60,7 @@ fn reader(ctx: RuntimeCtx, mut payload: HashMap<String, serde_json::Value>) {
         .to_string();
     RUNTIME.spawn(reader_behaviour(ctx, server_addr, reader_decoder));
 }
+
+register_actor!(server);
+register_actor!(reader);
+register_actor!(writer);

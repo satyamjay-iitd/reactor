@@ -19,7 +19,6 @@ interface NodeCardProps {
 }
 
 export default function NodeCard({ node, handleDeleteNode }: NodeCardProps) {
-  console.log(node);
   return (
     <div className="*:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card dark:*:data-[slot=card]:bg-card grid grid-cols-1 gap-4 px-4 *:data-[slot=card]:bg-gradient-to-t *:data-[slot=card]:shadow-xs lg:px-6 @xl/main:grid-cols-2 @5xl/main:grid-cols-4">
       <Card className="@container/card">
@@ -72,9 +71,9 @@ export default function NodeCard({ node, handleDeleteNode }: NodeCardProps) {
               <h3 className="font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Loaded Libs
               </h3>
-              {node.data.loaded_libs.length > 0 ? (
+              {Object.keys(node.data.loaded_libs).length > 0 ? (
                 <div className="flex flex-wrap justify-end gap-2">
-                  {node.data.loaded_libs.map((lib, idx) => (
+                  {Object.keys(node.data.loaded_libs).map((lib, idx) => (
                     <Badge key={idx} variant="secondary">
                       {lib}
                     </Badge>
