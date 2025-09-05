@@ -1,10 +1,48 @@
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use std::{
     collections::{BTreeMap, HashMap},
     iter,
 };
 
 pub type Hostname = &'static str;
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct Probability(pub f32);
+
+impl<'de> Deserialize<'de> for Probability {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let v = f32::deserialize(deserializer)?;
+        if (0.0..=1.0).contains(&v) {
+            Ok(Probability(v))
+        } else {
+            Err(serde::de::Error::custom(format!(
+                "probability must be between 0.0 and 1.0, got {v}"
+            )))
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct Factor(pub i32);
+
+impl<'de> Deserialize<'de> for Factor {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let v = i32::deserialize(deserializer)?;
+        if v >= 1 {
+            Ok(Factor(v))
+        } else {
+            Err(serde::de::Error::custom(format!(
+                "factor must be >= 1, got {v}"
+            )))
+        }
+    }
+}
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct NodeInfo {
@@ -40,38 +78,81 @@ pub struct LogicalOp {
     pub lib_name: String,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq)]
-#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Debug, Copy, Clone, Deserialize, PartialEq)]
+pub struct CrashOp {
+    pub crash_ms: Option<u32>,
+    pub restart_ms: Option<u32>,
+}
+
+#[derive(Debug, Copy, Clone, Deserialize, PartialEq)]
+pub struct MsgLossOp {
+    pub start_ms: Option<u32>,
+    pub stop_ms: Option<u32>,
+    pub probability: Probability,
+}
+
+#[derive(Debug, Copy, Clone, Deserialize, PartialEq)]
+pub struct MsgDuplicationOp {
+    pub start_ms: Option<u32>,
+    pub stop_ms: Option<u32>,
+    pub factor: Factor,
+    pub probability: Probability,
+}
+
+#[derive(Debug, Copy, Clone, Deserialize, PartialEq)]
+pub struct ChaosMap {
+    pub crash: Option<CrashOp>,
+    pub msg_loss: Option<MsgLossOp>,
+    pub msg_duplication: Option<MsgDuplicationOp>,
+}
+
+impl ChaosMap {
+    /// Return an iterator over all chaos ops present
+    pub fn iter(&self) -> impl Iterator<Item = ChaosOp> {
+        let mut v = Vec::new();
+        if let Some(op) = &self.msg_loss {
+            v.push(ChaosOp::MsgLoss(*op));
+        }
+        if let Some(op) = &self.msg_duplication {
+            v.push(ChaosOp::MsgDuplication(*op));
+        }
+        if let Some(op) = &self.crash {
+            v.push(ChaosOp::Crash(*op));
+        }
+        v.into_iter()
+    }
+
+    /// Create a new ChaosMap by extending the current one with another one prioritizing the current values in case of conflict
+    pub fn extend(self, other: Self) -> Self {
+        Self {
+            crash: self.crash.or(other.crash),
+            msg_loss: self.msg_loss.or(other.msg_loss),
+            msg_duplication: self.msg_duplication.or(other.msg_duplication),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum ChaosOp {
-    Crash {
-        start_ms: Option<u32>,
-    },
-    MsgLoss {
-        start_ms: Option<u32>,
-        stop_ms: Option<u32>,
-        probability: f32,
-    },
-    MsgDuplication {
-        start_ms: Option<u32>,
-        stop_ms: Option<u32>,
-        factor: u32,
-        probability: f32,
-    },
+    Crash(CrashOp),
+    MsgLoss(MsgLossOp),
+    MsgDuplication(MsgDuplicationOp),
 }
 
 impl ChaosOp {
     pub fn start_ms(&self) -> u32 {
         match self {
-            ChaosOp::Crash { start_ms, .. }
-            | ChaosOp::MsgLoss { start_ms, .. }
-            | ChaosOp::MsgDuplication { start_ms, .. } => start_ms.unwrap_or(0),
+            Self::Crash(op) => op.crash_ms.unwrap_or(0),
+            Self::MsgLoss(op) => op.start_ms.unwrap_or(0),
+            Self::MsgDuplication(op) => op.start_ms.unwrap_or(0),
         }
     }
 
     pub fn stop_ms(&self) -> Option<u32> {
         match self {
-            ChaosOp::Crash { .. } => None,
-            ChaosOp::MsgLoss { stop_ms, .. } | ChaosOp::MsgDuplication { stop_ms, .. } => *stop_ms,
+            Self::Crash(op) => op.restart_ms,
+            Self::MsgLoss(op) => op.stop_ms,
+            Self::MsgDuplication(op) => op.stop_ms,
         }
     }
 }
@@ -81,8 +162,7 @@ pub struct PhysicalOp {
     pub nodename: String,
     pub actor_name: String,
     pub replicas: Option<u32>,
-    //? Change to list (/map) of chaos ops for multiple choas ops per actor
-    pub chaos: Option<Vec<ChaosOp>>,
+    pub chaos: Option<ChaosMap>,
     #[serde(flatten)]
     pub payload: HashMap<String, serde_json::Value>,
 }
@@ -98,11 +178,25 @@ pub struct ManualPlacementManager {
 }
 
 impl ManualPlacementManager {
-    pub fn new(map: HashMap<String, Vec<PhysicalOp>>) -> Self {
+    pub fn new(
+        placement_map: HashMap<String, Vec<PhysicalOp>>,
+        gchaos_map: Option<ChaosMap>,
+    ) -> Self {
         let mut actual_placements: HashMap<String, Vec<PhysicalOp>> = HashMap::new();
-        for (op, value) in map.into_iter() {
+        for (op, value) in placement_map.into_iter() {
             let mut temp_vec: Vec<PhysicalOp> = Vec::new();
-            for phys_op in value {
+            for mut phys_op in value {
+                // phys_op.chaos = phys_op.chaos.extend(gchaos_map.clone().unwrap_or(ChaosMap {
+                //     crash: None,
+                //     msg_loss: None,
+                //     msg_duplication: None,
+                // }));
+                phys_op.chaos = match (phys_op.chaos, gchaos_map) {
+                    (Some(p_chaos), Some(g_chaos)) => Some(p_chaos.extend(g_chaos)),
+                    (Some(p_chaos), None) => Some(p_chaos),
+                    (None, Some(g_chaos)) => Some(g_chaos),
+                    (None, None) => None,
+                };
                 if let Some(replicas) = phys_op.replicas {
                     for i in 1..=replicas {
                         temp_vec.push(PhysicalOp {
@@ -110,7 +204,7 @@ impl ManualPlacementManager {
                             actor_name: format!("{}{}", phys_op.actor_name, i),
                             payload: phys_op.payload.clone(),
                             replicas: None,
-                            chaos: phys_op.chaos.clone(),
+                            chaos: phys_op.chaos,
                         });
                     }
                 } else {

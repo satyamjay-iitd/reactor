@@ -4,20 +4,31 @@ use futures::future::join_all;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
 
-use placement::{ChaosOp, Hostname, LibInfo, LogicalOp, PhysicalOp, PlacementManager};
+use placement::{
+    ChaosOp, CrashOp, Hostname, LibInfo, LogicalOp, MsgDuplicationOp, MsgLossOp, PhysicalOp,
+    PlacementManager,
+};
 use reactor_client::{
     self,
-    models::{ChaosConfig, ChaosType, RemoteActorInfo, SpawnArgs},
+    models::{MsgDuplicationRequest, MsgLossRequest, RemoteActorInfo, SpawnArgs},
 };
 
 pub mod placement;
+
+#[derive(Clone)]
+struct ChaosEvent {
+    actor_name: String,
+    op: ChaosOp,
+    start_time: Instant,
+    _stop_time: Option<Instant>,
+}
 
 struct NodeHandle {
     hostname: Hostname,
     client_config: reactor_client::apis::configuration::Configuration,
     actors: Vec<RemoteActorInfo>,
     loaded_libs: Vec<String>,
-    chaos_schedule: Vec<(RemoteActorInfo, ChaosOp, Instant, Option<Instant>)>,
+    chaos_schedule: Vec<ChaosEvent>,
 }
 
 impl NodeHandle {
@@ -63,18 +74,20 @@ impl NodeHandle {
         .unwrap();
         remote_actor_info.hostname = self.hostname.to_string();
         self.actors.push(remote_actor_info.clone());
-        for chaos_op in &physical_op.chaos.clone().unwrap_or_default() {
-            let now = Instant::now();
-            let start_time = now + Duration::from_millis(chaos_op.start_ms() as u64);
-            let stop_time = chaos_op
-                .stop_ms()
-                .map(|stop_ms| now + Duration::from_millis(stop_ms as u64));
-            self.chaos_schedule.push((
-                remote_actor_info.clone(),
-                chaos_op.clone(),
-                start_time,
-                stop_time,
-            ));
+        if let Some(chaos_map) = &physical_op.chaos {
+            for chaos_op in chaos_map.iter() {
+                let now = Instant::now();
+                let start_time = now + Duration::from_millis(chaos_op.start_ms() as u64);
+                let _stop_time = chaos_op
+                    .stop_ms()
+                    .map(|stop_ms| now + Duration::from_millis(stop_ms as u64));
+                self.chaos_schedule.push(ChaosEvent {
+                    actor_name: remote_actor_info.name.clone(),
+                    op: chaos_op.clone(),
+                    start_time,
+                    _stop_time,
+                });
+            }
         }
         remote_actor_info
     }
@@ -88,45 +101,89 @@ impl NodeHandle {
     async fn schedule_actor_chaos(&self) {
         // also needs some logic on, what if ctrlc pressed prematurely
         // and this function keeps running and sends requests to non-existent nodes
-        for (actor, op, start, _stop_opt) in self.chaos_schedule.clone() {
+        for chaos_event in self.chaos_schedule.clone() {
             let client_config = self.client_config.clone();
 
-            let chaos_config = match op {
-                ChaosOp::Crash { .. } => ChaosConfig {
-                    kind: ChaosType::Crash,
-                    actor_name: actor.name.clone(),
-                    factor: None,
-                    probability: None,
-                },
-
-                ChaosOp::MsgLoss { probability, .. } => ChaosConfig {
-                    kind: ChaosType::MsgLoss,
-                    actor_name: actor.name.clone(),
-                    factor: None,
-                    probability: Some(probability),
-                },
-
-                ChaosOp::MsgDuplication {
-                    factor,
-                    probability,
-                    ..
-                } => ChaosConfig {
-                    kind: ChaosType::MsgDuplication,
-                    actor_name: actor.name.clone(),
-                    factor: Some(factor),
-                    probability: Some(probability),
-                },
-            };
             tokio::spawn(async move {
                 let now = Instant::now();
-                if start > now {
-                    sleep(start - now).await;
+                if chaos_event.start_time > now {
+                    sleep(chaos_event.start_time - now).await;
                 }
-                reactor_client::apis::default_api::add_chaos(&client_config, chaos_config)
-                    .await
-                    .unwrap();
+                match chaos_event.op {
+                    ChaosOp::Crash(CrashOp { .. }) => {
+                        reactor_client::apis::default_api::stop_actor(
+                            &client_config,
+                            &chaos_event.actor_name.clone(),
+                        )
+                        .await
+                        .unwrap();
+                    }
+
+                    ChaosOp::MsgLoss(MsgLossOp { probability, .. }) => {
+                        let msg_loss_request = MsgLossRequest {
+                            actor_name: chaos_event.actor_name.clone(),
+                            probability: probability.0,
+                        };
+                        reactor_client::apis::default_api::set_msg_loss(
+                            &client_config,
+                            msg_loss_request,
+                        )
+                        .await
+                        .unwrap();
+                    }
+
+                    ChaosOp::MsgDuplication(MsgDuplicationOp {
+                        factor,
+                        probability,
+                        ..
+                    }) => {
+                        let msg_duplication_request = MsgDuplicationRequest {
+                            actor_name: chaos_event.actor_name.clone(),
+                            factor: factor.0,
+                            probability: probability.0,
+                        };
+                        reactor_client::apis::default_api::set_duplication(
+                            &client_config,
+                            msg_duplication_request,
+                        )
+                        .await
+                        .unwrap();
+                    }
+                };
             });
-            //? This is for later
+            // let chaos_config = match chaos_event.op {
+            //     ChaosOp::Crash { .. } => ChaosConfig {
+            //         kind: ChaosType::Crash,
+            //         actor_name: chaos_event.actor_name,
+            //         factor: None,
+            //         probability: None,
+            //     },
+
+            //     ChaosOp::MsgLoss( MsgLossOp { probability, .. } ) => ChaosConfig {
+            //         kind: ChaosType::MsgLoss,
+            //         actor_name: chaos_event.actor_name,
+            //         factor: None,
+            //         probability: Probability
+            //     },
+
+            //     ChaosOp::MsgDuplication(MsgDuplicationOp { factor, probability, ..}) => ChaosConfig {
+            //         kind: ChaosType::MsgDuplication,
+            //         actor_name: chaos_event.actor_name,
+            //         factor: Some(factor),
+            //         probability: Some(probability),
+            //     },
+            // };
+            // tokio::spawn(async move {
+            //     let now = Instant::now();
+            //     if chaos_event.start_time > now {
+            //         sleep(chaos_event.start_time - now).await;
+            //     }
+            //     reactor_client::apis::default_api::add_chaos(&client_config, chaos_config)
+            //         .await
+            //         .unwrap();
+            // });
+
+            // ? This is for later
             // if let Some(stop) = stop_opt {
             //     tokio::spawn(async move {
             //         let now = Instant::now();
@@ -141,7 +198,7 @@ impl NodeHandle {
         }
     }
 
-    async fn stop_all_actors(&self) {
+    async fn stop_all_actors(self) {
         reactor_client::apis::default_api::stop_all_actors(&self.client_config)
             .await
             .unwrap();

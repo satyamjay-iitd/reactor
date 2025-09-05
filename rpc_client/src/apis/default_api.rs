@@ -20,19 +20,26 @@ pub enum ActorAddedError {
     UnknownValue(serde_json::Value),
 }
 
-/// struct for typed errors of method [`add_chaos`]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum AddChaosError {
-    UnknownValue(serde_json::Value),
-}
-
 /// struct for typed errors of method [`register_lib`]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum RegisterLibError {
     Status400(),
     Status501(),
+    UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`set_duplication`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SetDuplicationError {
+    UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`set_msg_loss`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SetMsgLossError {
     UnknownValue(serde_json::Value),
 }
 
@@ -47,6 +54,7 @@ pub enum StartActorError {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum StopActorError {
+    Status404(),
     UnknownValue(serde_json::Value),
 }
 
@@ -92,41 +100,6 @@ pub async fn actor_added(
     }
 }
 
-pub async fn add_chaos(
-    configuration: &configuration::Configuration,
-    chaos_config: models::ChaosConfig,
-) -> Result<(), Error<AddChaosError>> {
-    // add a prefix to parameters to efficiently prevent name collisions
-    let p_body_chaos_config = chaos_config;
-
-    let uri_str = format!("{}/add_chaos", configuration.base_path);
-    let mut req_builder = configuration
-        .client
-        .request(reqwest::Method::POST, &uri_str);
-
-    if let Some(ref user_agent) = configuration.user_agent {
-        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
-    }
-    req_builder = req_builder.json(&p_body_chaos_config);
-
-    let req = req_builder.build()?;
-    let resp = configuration.client.execute(req).await?;
-
-    let status = resp.status();
-
-    if !status.is_client_error() && !status.is_server_error() {
-        Ok(())
-    } else {
-        let content = resp.text().await?;
-        let entity: Option<AddChaosError> = serde_json::from_str(&content).ok();
-        Err(Error::ResponseError(ResponseContent {
-            status,
-            content,
-            entity,
-        }))
-    }
-}
-
 pub async fn register_lib(
     configuration: &configuration::Configuration,
     registration_args: models::RegistrationArgs,
@@ -154,6 +127,76 @@ pub async fn register_lib(
     } else {
         let content = resp.text().await?;
         let entity: Option<RegisterLibError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
+}
+
+pub async fn set_duplication(
+    configuration: &configuration::Configuration,
+    msg_duplication_request: models::MsgDuplicationRequest,
+) -> Result<(), Error<SetDuplicationError>> {
+    // add a prefix to parameters to efficiently prevent name collisions
+    let p_body_msg_duplication_request = msg_duplication_request;
+
+    let uri_str = format!("{}/set_duplication", configuration.base_path);
+    let mut req_builder = configuration
+        .client
+        .request(reqwest::Method::POST, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    req_builder = req_builder.json(&p_body_msg_duplication_request);
+
+    let req = req_builder.build()?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+
+    if !status.is_client_error() && !status.is_server_error() {
+        Ok(())
+    } else {
+        let content = resp.text().await?;
+        let entity: Option<SetDuplicationError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
+}
+
+pub async fn set_msg_loss(
+    configuration: &configuration::Configuration,
+    msg_loss_request: models::MsgLossRequest,
+) -> Result<(), Error<SetMsgLossError>> {
+    // add a prefix to parameters to efficiently prevent name collisions
+    let p_body_msg_loss_request = msg_loss_request;
+
+    let uri_str = format!("{}/set_msg_loss", configuration.base_path);
+    let mut req_builder = configuration
+        .client
+        .request(reqwest::Method::POST, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    req_builder = req_builder.json(&p_body_msg_loss_request);
+
+    let req = req_builder.build()?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+
+    if !status.is_client_error() && !status.is_server_error() {
+        Ok(())
+    } else {
+        let content = resp.text().await?;
+        let entity: Option<SetMsgLossError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
             content,
@@ -210,10 +253,10 @@ pub async fn start_actor(
 
 pub async fn stop_actor(
     configuration: &configuration::Configuration,
-    remote_actor_info: models::RemoteActorInfo,
+    body: &str,
 ) -> Result<(), Error<StopActorError>> {
     // add a prefix to parameters to efficiently prevent name collisions
-    let p_body_remote_actor_info = remote_actor_info;
+    let p_body_body = body;
 
     let uri_str = format!("{}/stop_actor", configuration.base_path);
     let mut req_builder = configuration
@@ -223,7 +266,7 @@ pub async fn stop_actor(
     if let Some(ref user_agent) = configuration.user_agent {
         req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
     }
-    req_builder = req_builder.json(&p_body_remote_actor_info);
+    req_builder = req_builder.json(&p_body_body);
 
     let req = req_builder.build()?;
     let resp = configuration.client.execute(req).await?;

@@ -1,7 +1,7 @@
-pub mod chaos_config;
-pub use self::chaos_config::ChaosConfig;
-pub mod chaos_type;
-pub use self::chaos_type::ChaosType;
+pub mod msg_duplication_request;
+pub use self::msg_duplication_request::MsgDuplicationRequest;
+pub mod msg_loss_request;
+pub use self::msg_loss_request::MsgLossRequest;
 pub mod registration_args;
 pub use self::registration_args::RegistrationArgs;
 pub mod remote_actor_info;

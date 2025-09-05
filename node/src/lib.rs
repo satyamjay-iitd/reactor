@@ -45,7 +45,7 @@ pub(crate) struct SpawnResult {
 #[derive(Debug)]
 pub(crate) struct RegisterResult {}
 
-use rpc::{ChaosConfig, ChaosType};
+// use rpc::{ChaosConfig, };
 /// Global Controller
 pub(crate) enum JobControllerReq {
     #[cfg(feature = "dynop")]
@@ -69,7 +69,15 @@ pub(crate) enum JobControllerReq {
         addr: ActorAddr,
     },
     StopAllActors,
-    Chaos(ChaosConfig),
+    MsgLoss {
+        actor_name: ActorAddr,
+        probability: f32,
+    },
+    MsgDuplication {
+        actor_name: ActorAddr,
+        factor: u32,
+        probability: f32,
+    },
 }
 
 struct LocalActor {
@@ -239,42 +247,36 @@ async fn handle_job_req(
                 actor.handle.send(ControlInst::Stop).await.unwrap();
             }
         }
-        JobControllerReq::Chaos(chaos_req) => match chaos_req.kind {
-            ChaosType::Crash => {
-                if let Some(actor) = local_actors.remove(&chaos_req.actor_name) {
-                    info!(target: "stopping actor", "{}", chaos_req.actor_name);
-                    actor.handle.send(ControlInst::Stop).await.unwrap();
-                }
+        JobControllerReq::MsgDuplication {
+            actor_name,
+            factor,
+            probability,
+        } => {
+            if let Some(actor) = local_actors.get(&actor_name) {
+                info!(target: "setting msg duplication", actor_name, factor, probability);
+                actor
+                    .handle
+                    .send(ControlInst::SetMsgDuplication {
+                        factor,
+                        probability,
+                    })
+                    .await
+                    .unwrap();
             }
-            ChaosType::MsgLoss => {
-                if let Some(probability) = chaos_req.probability {
-                    if let Some(actor) = local_actors.get(&chaos_req.actor_name) {
-                        info!(target: "setting msg loss", actor_name = chaos_req.actor_name, probability);
-                        actor
-                            .handle
-                            .send(ControlInst::SetMsgLoss { probability })
-                            .await
-                            .unwrap();
-                    }
-                }
+        }
+        JobControllerReq::MsgLoss {
+            actor_name,
+            probability,
+        } => {
+            if let Some(actor) = local_actors.get(&actor_name) {
+                info!(target: "setting msg loss", actor_name, probability);
+                actor
+                    .handle
+                    .send(ControlInst::SetMsgLoss { probability })
+                    .await
+                    .unwrap();
             }
-            ChaosType::MsgDuplication => {
-                if let (Some(probability), Some(factor)) = (chaos_req.probability, chaos_req.factor)
-                {
-                    if let Some(actor) = local_actors.get(&chaos_req.actor_name) {
-                        info!(target: "setting msg duplication", actor_name = chaos_req.actor_name, factor, probability);
-                        actor
-                            .handle
-                            .send(ControlInst::SetMsgDuplication {
-                                factor,
-                                probability,
-                            })
-                            .await
-                            .unwrap();
-                    }
-                }
-            }
-        },
+        }
     }
 }
 

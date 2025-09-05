@@ -3,9 +3,9 @@
 .travis.yml
 Cargo.toml
 README.md
-docs/ChaosConfig.md
-docs/ChaosType.md
 docs/DefaultApi.md
+docs/MsgDuplicationRequest.md
+docs/MsgLossRequest.md
 docs/RegistrationArgs.md
 docs/RemoteActorInfo.md
 docs/SpawnArgs.md
@@ -14,9 +14,9 @@ src/apis/configuration.rs
 src/apis/default_api.rs
 src/apis/mod.rs
 src/lib.rs
-src/models/chaos_config.rs
-src/models/chaos_type.rs
 src/models/mod.rs
+src/models/msg_duplication_request.rs
+src/models/msg_loss_request.rs
 src/models/registration_args.rs
 src/models/remote_actor_info.rs
 src/models/spawn_args.rs

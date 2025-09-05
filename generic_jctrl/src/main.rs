@@ -10,7 +10,7 @@
 
 use clap::{Parser, command};
 use reactor_jobm::JobController;
-use reactor_jobm::placement::{LogicalOp, ManualPlacementManager, NodeInfo, PhysicalOp};
+use reactor_jobm::placement::{ChaosMap, LogicalOp, ManualPlacementManager, NodeInfo, PhysicalOp};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
@@ -21,6 +21,7 @@ use tokio::signal;
 pub struct JobManifest {
     pub nodes: Vec<NodeInfo>,
     pub ops: Vec<LogicalOp>,
+    pub global_chaos: Option<ChaosMap>,
     pub placement: HashMap<String, Vec<PhysicalOp>>,
 }
 
@@ -37,7 +38,7 @@ async fn main() {
     let job_manifest: JobManifest = toml::from_str(&contents).expect("Toml Parse error");
 
     let ops = job_manifest.ops;
-    let pm = ManualPlacementManager::new(job_manifest.placement);
+    let pm = ManualPlacementManager::new(job_manifest.placement, job_manifest.global_chaos);
     let mut jc = JobController::new(pm);
 
     for node in job_manifest.nodes {
@@ -53,7 +54,7 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use reactor_jobm::placement::ChaosOp;
+    use reactor_jobm::placement::{CrashOp, MsgLossOp, Probability};
     use serde_json::json;
     use std::collections::HashMap;
 
@@ -78,12 +79,10 @@ port = 3000
   nodename = "node1"
   actor_name = "pinger"
   other = "ponger"
-    [[placement.pinger.chaos]]
-    type = "CRASH"
-    start_ms = 10000
+    [placement.pinger.chaos.crash]
+    crash_ms = 10000
 
-    [[placement.pinger.chaos]]
-    type = "MSG_LOSS"
+    [placement.pinger.chaos.msg_loss]
     start_ms = 10000
     probability = 0.1
 
@@ -108,6 +107,7 @@ port = 3000
                     lib_name: "ping_pong_actor".into(),
                 },
             ],
+            global_chaos: None,
             placement: HashMap::from([
                 (
                     "pinger".into(),
@@ -116,16 +116,18 @@ port = 3000
                         actor_name: "pinger".into(),
                         payload: HashMap::from([("other".to_string(), json!("ponger"))]),
                         replicas: None,
-                        chaos: Some(vec![
-                            ChaosOp::Crash {
+                        chaos: Some(ChaosMap {
+                            crash: Some(CrashOp {
+                                crash_ms: Some(10000),
+                                restart_ms: None,
+                            }),
+                            msg_loss: Some(MsgLossOp {
                                 start_ms: Some(10000),
-                            },
-                            ChaosOp::MsgLoss {
-                                start_ms: Some(10000),
-                                probability: 0.1,
+                                probability: Probability(0.1),
                                 stop_ms: None,
-                            },
-                        ]),
+                            }),
+                            msg_duplication: None,
+                        }),
                     }],
                 ),
                 (
@@ -160,7 +162,7 @@ port = 3000
         };
 
         assert_eq!(parsed, expected);
-        let pm = ManualPlacementManager::new(parsed.placement);
+        let pm = ManualPlacementManager::new(parsed.placement, parsed.global_chaos);
 
         let pinger_list = pm.map.get("pinger").unwrap();
         assert_eq!(pinger_list.len(), 1);

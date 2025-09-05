@@ -47,28 +47,33 @@ pub(crate) struct RemoteActorInfo {
     pub port: u16,
 }
 
+// #[cfg_attr(feature = "swagger", derive(utoipa::ToSchema))]
+// #[derive(Serialize, Deserialize, Debug)]
+// pub struct CrashRequest {
+//     pub actor_name: String,
+// }
+
 #[cfg_attr(feature = "swagger", derive(utoipa::ToSchema))]
 #[derive(Serialize, Deserialize, Debug)]
-pub struct ChaosConfig {
-    pub kind: ChaosType,
+pub struct MsgLossRequest {
     pub actor_name: String,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "swagger", schema(nullable = false))]
-    pub probability: Option<f32>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "swagger", schema(nullable = false))]
-    pub factor: Option<u32>,
+    pub probability: f32,
 }
 
 #[cfg_attr(feature = "swagger", derive(utoipa::ToSchema))]
 #[derive(Serialize, Deserialize, Debug)]
-pub enum ChaosType {
-    Crash,
-    MsgLoss,
-    MsgDuplication,
+pub struct MsgDuplicationRequest {
+    pub actor_name: String,
+    pub factor: u32,
+    pub probability: f32,
 }
+
+// For use inside jobcontrollerreq
+// pub enum ChaosConfig {
+//     Crash(CrashRequest),
+//     MsgLoss(MsgLossRequest),
+//     MsgDuplication(MsgDuplicationRequest),
+// }
 
 #[cfg_attr(feature = "swagger", derive(ToSchema))]
 #[derive(Serialize, Deserialize, Debug)]
@@ -222,23 +227,24 @@ async fn actor_added(
     post,
     path = "/stop_actor",
     responses(
-        (status = 200, description = "Actor stop initiated")
+        (status = 200, description = "Actor stop initiated"),
+        (status = 404, description = "Actor not found")
     )
 ))]
 async fn stop_actor(
     State(state): State<Arc<AppState>>,
-    Json(actor_info): Json<RemoteActorInfo>,
+    Json(actor_addr): Json<String>,
 ) -> impl IntoResponse {
     state
         .clone()
         .tx
         .send(JobControllerReq::StopActor {
-            addr: actor_info.name.clone(),
+            addr: actor_addr.clone(),
         })
         .unwrap();
     (
         axum::http::StatusCode::OK,
-        format!("Actor {} Stopped!", actor_info.name),
+        format!("Actor {} Stopped!", actor_addr),
     )
 }
 
@@ -260,19 +266,45 @@ async fn stop_all_actors(State(state): State<Arc<AppState>>) -> impl IntoRespons
 
 #[cfg_attr(feature="swagger", utoipa::path(
     post,
-    path = "/add_chaos",
+    path = "/set_duplication",
     responses(
         (status = 200, description = "Actor stop initiated")
     )
 ))]
-async fn add_chaos(
+async fn set_duplication(
     State(state): State<Arc<AppState>>,
-    Json(chaos_config): Json<ChaosConfig>,
+    Json(dupl_request): Json<MsgDuplicationRequest>,
 ) -> impl IntoResponse {
     state
         .clone()
         .tx
-        .send(JobControllerReq::Chaos(chaos_config))
+        .send(JobControllerReq::MsgDuplication {
+            actor_name: dupl_request.actor_name,
+            factor: dupl_request.factor,
+            probability: dupl_request.probability,
+        })
+        .unwrap();
+    (axum::http::StatusCode::OK, "Chaos Config Applied!")
+}
+
+#[cfg_attr(feature="swagger", utoipa::path(
+    post,
+    path = "/set_msg_loss",
+    responses(
+        (status = 200, description = "Actor stop initiated")
+    )
+))]
+async fn set_msg_loss(
+    State(state): State<Arc<AppState>>,
+    Json(loss_request): Json<MsgLossRequest>,
+) -> impl IntoResponse {
+    state
+        .clone()
+        .tx
+        .send(JobControllerReq::MsgLoss {
+            actor_name: loss_request.actor_name,
+            probability: loss_request.probability,
+        })
         .unwrap();
     (axum::http::StatusCode::OK, "Chaos Config Applied!")
 }
@@ -285,7 +317,8 @@ async fn add_chaos(
     register_lib,
     stop_actor,
     stop_all_actors,
-    add_chaos
+    set_duplication,
+    set_msg_loss
 ))]
 struct ApiDoc;
 
@@ -297,7 +330,8 @@ pub async fn webserver(job_control_tx: UnboundedSender<JobControllerReq>, port: 
         .route("/register_lib", post(register_lib))
         .route("/stop_actor", post(stop_actor))
         .route("/stop_all_actors", post(stop_all_actors))
-        .route("/add_chaos", post(add_chaos))
+        .route("/set_duplication", post(set_duplication))
+        .route("/set_msg_loss", post(set_msg_loss))
         .with_state(state)
         .layer(
             TraceLayer::new_for_http()

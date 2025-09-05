@@ -27,8 +27,9 @@ All URIs are relative to *http://localhost*
 Class | Method | HTTP request | Description
 ------------ | ------------- | ------------- | -------------
 *DefaultApi* | [**actor_added**](docs/DefaultApi.md#actor_added) | **POST** /actor_added | 
-*DefaultApi* | [**add_chaos**](docs/DefaultApi.md#add_chaos) | **POST** /add_chaos | 
 *DefaultApi* | [**register_lib**](docs/DefaultApi.md#register_lib) | **POST** /register_lib | 
+*DefaultApi* | [**set_duplication**](docs/DefaultApi.md#set_duplication) | **POST** /set_duplication | 
+*DefaultApi* | [**set_msg_loss**](docs/DefaultApi.md#set_msg_loss) | **POST** /set_msg_loss | 
 *DefaultApi* | [**start_actor**](docs/DefaultApi.md#start_actor) | **POST** /start_actor | 
 *DefaultApi* | [**stop_actor**](docs/DefaultApi.md#stop_actor) | **POST** /stop_actor | 
 *DefaultApi* | [**stop_all_actors**](docs/DefaultApi.md#stop_all_actors) | **POST** /stop_all_actors | 
@@ -36,8 +37,8 @@ Class | Method | HTTP request | Description
 
 ## Documentation For Models
 
- - [ChaosConfig](docs/ChaosConfig.md)
- - [ChaosType](docs/ChaosType.md)
+ - [MsgDuplicationRequest](docs/MsgDuplicationRequest.md)
+ - [MsgLossRequest](docs/MsgLossRequest.md)
  - [RegistrationArgs](docs/RegistrationArgs.md)
  - [RemoteActorInfo](docs/RemoteActorInfo.md)
  - [SpawnArgs](docs/SpawnArgs.md)
