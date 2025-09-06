@@ -99,11 +99,21 @@ pub struct MsgDuplicationOp {
     pub probability: Probability,
 }
 
-#[derive(Debug, Copy, Clone, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct MsgDelayOp {
+    pub start_ms: Option<u32>,
+    pub stop_ms: Option<u32>,
+    // Both inclusive
+    pub delay_range_ms: (u64, u64),
+    pub sender: String,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct ChaosMap {
     pub crash: Option<CrashOp>,
     pub msg_loss: Option<MsgLossOp>,
     pub msg_duplication: Option<MsgDuplicationOp>,
+    pub msg_delay: Option<MsgDelayOp>,
 }
 
 impl ChaosMap {
@@ -128,6 +138,7 @@ impl ChaosMap {
             crash: self.crash.or(other.crash),
             msg_loss: self.msg_loss.or(other.msg_loss),
             msg_duplication: self.msg_duplication.or(other.msg_duplication),
+            msg_delay: self.msg_delay.or(other.msg_delay),
         }
     }
 }
@@ -137,6 +148,7 @@ pub enum ChaosOp {
     Crash(CrashOp),
     MsgLoss(MsgLossOp),
     MsgDuplication(MsgDuplicationOp),
+    MsgDelay(MsgDelayOp),
 }
 
 impl ChaosOp {
@@ -145,6 +157,7 @@ impl ChaosOp {
             Self::Crash(op) => op.crash_ms.unwrap_or(0),
             Self::MsgLoss(op) => op.start_ms.unwrap_or(0),
             Self::MsgDuplication(op) => op.start_ms.unwrap_or(0),
+            Self::MsgDelay(op) => op.start_ms.unwrap_or(0),
         }
     }
 
@@ -153,6 +166,7 @@ impl ChaosOp {
             Self::Crash(op) => op.restart_ms,
             Self::MsgLoss(op) => op.stop_ms,
             Self::MsgDuplication(op) => op.stop_ms,
+            Self::MsgDelay(op) => op.stop_ms,
         }
     }
 }
@@ -191,7 +205,7 @@ impl ManualPlacementManager {
                 //     msg_loss: None,
                 //     msg_duplication: None,
                 // }));
-                phys_op.chaos = match (phys_op.chaos, gchaos_map) {
+                phys_op.chaos = match (phys_op.chaos, gchaos_map.clone()) {
                     (Some(p_chaos), Some(g_chaos)) => Some(p_chaos.extend(g_chaos)),
                     (Some(p_chaos), None) => Some(p_chaos),
                     (None, Some(g_chaos)) => Some(g_chaos),
@@ -204,7 +218,7 @@ impl ManualPlacementManager {
                             actor_name: format!("{}{}", phys_op.actor_name, i),
                             payload: phys_op.payload.clone(),
                             replicas: None,
-                            chaos: phys_op.chaos,
+                            chaos: phys_op.chaos.clone(),
                         });
                     }
                 } else {

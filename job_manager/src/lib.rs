@@ -10,8 +10,10 @@ use placement::{
 };
 use reactor_client::{
     self,
-    models::{MsgDuplicationRequest, MsgLossRequest, RemoteActorInfo, SpawnArgs},
+    models::{MsgDelayRequest, MsgDuplicationRequest, MsgLossRequest, RemoteActorInfo, SpawnArgs},
 };
+
+use crate::placement::MsgDelayOp;
 
 pub mod placement;
 
@@ -145,6 +147,24 @@ impl NodeHandle {
                         reactor_client::apis::default_api::set_duplication(
                             &client_config,
                             msg_duplication_request,
+                        )
+                        .await
+                        .unwrap();
+                    }
+                    ChaosOp::MsgDelay(MsgDelayOp {
+                        delay_range_ms,
+                        sender,
+                        ..
+                    }) => {
+                        let msg_delay_request = MsgDelayRequest {
+                            actor_name: chaos_event.actor_name.clone(),
+                            delay_range_start: delay_range_ms.0 as i64,
+                            delay_range_end: delay_range_ms.1 as i64,
+                            sender,
+                        };
+                        reactor_client::apis::default_api::set_msg_delay(
+                            &client_config,
+                            msg_delay_request,
                         )
                         .await
                         .unwrap();
