@@ -34,6 +34,8 @@ Class | Method | HTTP request | Description
 *DefaultApi* | [**start_actor**](docs/DefaultApi.md#start_actor) | **POST** /start_actor | 
 *DefaultApi* | [**stop_actor**](docs/DefaultApi.md#stop_actor) | **POST** /stop_actor | 
 *DefaultApi* | [**stop_all_actors**](docs/DefaultApi.md#stop_all_actors) | **POST** /stop_all_actors | 
+*DefaultApi* | [**unset_msg_duplication**](docs/DefaultApi.md#unset_msg_duplication) | **POST** /unset_msg_duplication | 
+*DefaultApi* | [**unset_msg_loss**](docs/DefaultApi.md#unset_msg_loss) | **POST** /unset_msg_loss | 
 
 
 ## Documentation For Models

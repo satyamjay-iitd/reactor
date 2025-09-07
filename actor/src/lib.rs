@@ -144,6 +144,8 @@ enum R2PMsg<T> {
     SetMsgLoss {
         probability: f32,
     },
+    UnsetMsgLoss,
+    UnsetMsgDuplication,
 }
 
 impl<T: Clone> Clone for R2PMsg<T> {
@@ -174,6 +176,8 @@ impl<T: HasPriority> HasPriority for R2PMsg<T> {
             R2PMsg::RemoveLowPrio => MAX_PRIO,
             R2PMsg::SetMsgLoss { .. } => MAX_PRIO,
             R2PMsg::SetMsgDuplication { .. } => MAX_PRIO,
+            R2PMsg::UnsetMsgLoss => MAX_PRIO,
+            R2PMsg::UnsetMsgDuplication => MAX_PRIO,
         }
     }
 }
@@ -567,6 +571,14 @@ where
                                 probability
                             );
                             chaos_manager.set_msg_loss(probability);
+                        }
+                        Some(R2PMsg::UnsetMsgLoss) => {
+                            tracing::info!("[ACTOR][{}] Unsetting Msg Loss", addr);
+                            chaos_manager.unset_msg_loss();
+                        }
+                        Some(R2PMsg::UnsetMsgDuplication) => {
+                            tracing::info!("[ACTOR][{}] Unsetting Msg Duplication", addr);
+                            chaos_manager.unset_msg_duplication();
                         }
                         None => {
                             break;

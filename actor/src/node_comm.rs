@@ -38,6 +38,8 @@ pub enum ControlInst {
         delay_range_ms: (u64, u64),
         sender: String,
     },
+    UnsetMsgLoss,
+    UnsetMsgDuplication,
 }
 
 #[derive(Debug)]

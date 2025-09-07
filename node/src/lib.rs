@@ -83,6 +83,12 @@ pub(crate) enum JobControllerReq {
         delay_range_ms: (u64, u64),
         sender: String,
     },
+    DisableMsgLoss {
+        actor_name: ActorAddr,
+    },
+    DisableMsgDuplication {
+        actor_name: ActorAddr,
+    },
 }
 
 struct LocalActor {
@@ -295,6 +301,22 @@ async fn handle_job_req(
                         delay_range_ms,
                         sender,
                     })
+                    .await
+                    .unwrap();
+            }
+        }
+        JobControllerReq::DisableMsgLoss { actor_name } => {
+            if let Some(actor) = local_actors.get(&actor_name) {
+                info!(target: "disabling msg loss", actor_name);
+                actor.handle.send(ControlInst::UnsetMsgLoss).await.unwrap();
+            }
+        }
+        JobControllerReq::DisableMsgDuplication { actor_name } => {
+            if let Some(actor) = local_actors.get(&actor_name) {
+                info!(target: "disabling msg duplication", actor_name);
+                actor
+                    .handle
+                    .send(ControlInst::UnsetMsgDuplication)
                     .await
                     .unwrap();
             }

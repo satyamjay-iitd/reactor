@@ -168,6 +168,16 @@ where
                     error!("Sender {sender} not found");
                 }
             }
+            ControlInst::UnsetMsgLoss => {
+                p_tx.send(R2PMsg::UnsetMsgLoss)
+                    .await
+                    .map_err(|_| ActorError::R2PErr)?;
+            }
+            ControlInst::UnsetMsgDuplication => {
+                p_tx.send(R2PMsg::UnsetMsgDuplication)
+                    .await
+                    .map_err(|_| ActorError::R2PErr)?;
+            }
             ControlInst::Stop => {
                 cancel_token.cancel();
                 p_tx.send(R2PMsg::Exit)
