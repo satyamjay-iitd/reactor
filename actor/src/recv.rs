@@ -1,3 +1,4 @@
+use core::panic;
 use std::{
     collections::HashMap,
     net::{Ipv4Addr, SocketAddr},
@@ -177,6 +178,10 @@ where
                 p_tx.send(R2PMsg::UnsetMsgDuplication)
                     .await
                     .map_err(|_| ActorError::R2PErr)?;
+            }
+            ControlInst::UnsetMsgDelay => {
+                // Not implemented
+                panic!("UnsetMsgDelay not implemented");
             }
             ControlInst::Stop => {
                 cancel_token.cancel();

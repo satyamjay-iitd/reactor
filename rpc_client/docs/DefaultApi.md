@@ -12,6 +12,7 @@ Method | HTTP request | Description
 [**start_actor**](DefaultApi.md#start_actor) | **POST** /start_actor | 
 [**stop_actor**](DefaultApi.md#stop_actor) | **POST** /stop_actor | 
 [**stop_all_actors**](DefaultApi.md#stop_all_actors) | **POST** /stop_all_actors | 
+[**unset_msg_delay**](DefaultApi.md#unset_msg_delay) | **POST** /unset_msg_delay | 
 [**unset_msg_duplication**](DefaultApi.md#unset_msg_duplication) | **POST** /unset_msg_duplication | 
 [**unset_msg_loss**](DefaultApi.md#unset_msg_loss) | **POST** /unset_msg_loss | 
 
@@ -233,6 +234,34 @@ No authorization required
 ### HTTP request headers
 
 - **Content-Type**: Not defined
+- **Accept**: Not defined
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+
+## unset_msg_delay
+
+> unset_msg_delay(body)
+
+
+### Parameters
+
+
+Name | Type | Description  | Required | Notes
+------------- | ------------- | ------------- | ------------- | -------------
+**body** | **String** |  | [required] |
+
+### Return type
+
+ (empty response body)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+- **Content-Type**: text/plain
 - **Accept**: Not defined
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)

@@ -11,6 +11,8 @@ gen_http_client: kill_node
 
 # Expects openapi-generator-cli to be installed:
 # npm install @openapitools/openapi-generator-cli -g
+# If npm version not working, try below (with python>=3.10), doesn't need java to be installed:
+# pip install openapi-generator-cli[jdk4py]
 gen_http_client_manual: kill_node
 	@echo "Running demo server..."
 	cargo run --features swagger --bin reactor_nctrl -- --port 3000 /tmp &

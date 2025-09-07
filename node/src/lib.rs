@@ -89,6 +89,9 @@ pub(crate) enum JobControllerReq {
     DisableMsgDuplication {
         actor_name: ActorAddr,
     },
+    DisableMsgDelay {
+        actor_name: ActorAddr,
+    },
 }
 
 struct LocalActor {
@@ -319,6 +322,12 @@ async fn handle_job_req(
                     .send(ControlInst::UnsetMsgDuplication)
                     .await
                     .unwrap();
+            }
+        }
+        JobControllerReq::DisableMsgDelay { actor_name } => {
+            if let Some(actor) = local_actors.get(&actor_name) {
+                info!(target: "disabling msg loss", actor_name);
+                actor.handle.send(ControlInst::UnsetMsgDelay).await.unwrap();
             }
         }
     }

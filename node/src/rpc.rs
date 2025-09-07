@@ -315,7 +315,7 @@ async fn set_msg_loss(
     post,
     path = "/set_msg_delay",
     responses(
-        (status = 200, description = "Chaos Config Applied!")
+        (status = 200, description = "Msg Delay Config Applied")
     )
 ))]
 async fn set_msg_delay(
@@ -379,6 +379,27 @@ async fn unset_msg_loss(
     (axum::http::StatusCode::OK, "Chaos Config Removed!")
 }
 
+#[cfg_attr(feature="swagger", utoipa::path(
+    post,
+    path = "/unset_msg_delay",
+    responses(
+        (status = 200, description = "Msg Delay Config Removed")
+    )
+))]
+async fn unset_msg_delay(
+    State(state): State<Arc<AppState>>,
+    Json(actor_addr): Json<String>,
+) -> impl IntoResponse {
+    state
+        .clone()
+        .tx
+        .send(JobControllerReq::DisableMsgDelay {
+            actor_name: actor_addr,
+        })
+        .unwrap();
+    (axum::http::StatusCode::OK, "Chaos Config Removed!")
+}
+
 #[cfg(feature = "swagger")]
 #[derive(OpenApi)]
 #[openapi(paths(
@@ -389,9 +410,10 @@ async fn unset_msg_loss(
     stop_all_actors,
     set_duplication,
     set_msg_loss,
-    set_msg_delay
+    set_msg_delay,
     unset_msg_duplication,
-    unset_msg_loss
+    unset_msg_loss,
+    unset_msg_delay
 ))]
 struct ApiDoc;
 
@@ -408,6 +430,7 @@ pub async fn webserver(job_control_tx: UnboundedSender<JobControllerReq>, port: 
         .route("/set_msg_delay", post(set_msg_delay))
         .route("/unset_msg_duplication", post(unset_msg_duplication))
         .route("/unset_msg_loss", post(unset_msg_loss))
+        .route("/unset_msg_delay", post(unset_msg_delay))
         .with_state(state)
         .layer(
             TraceLayer::new_for_http()

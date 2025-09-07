@@ -54,6 +54,21 @@ impl ChaosOp {
                 .await
                 .unwrap();
             }
+            ChaosOp::MsgDelay(MsgDelayOp {
+                delay_range_ms,
+                sender,
+                ..
+            }) => {
+                let msg_delay_request = MsgDelayRequest {
+                    actor_name,
+                    delay_range_start: delay_range_ms.0 as i64,
+                    delay_range_end: delay_range_ms.1 as i64,
+                    sender: sender.to_string(),
+                };
+                reactor_client::apis::default_api::set_msg_delay(client_config, msg_delay_request)
+                    .await
+                    .unwrap();
+            }
         }
     }
 
@@ -83,6 +98,21 @@ impl ChaosOp {
                 )
                 .await
                 .unwrap();
+            }
+            ChaosOp::MsgDelay(MsgDelayOp {
+                delay_range_ms,
+                sender,
+                ..
+            }) => {
+                let msg_delay_request = MsgDelayRequest {
+                    actor_name,
+                    delay_range_start: delay_range_ms.0 as i64,
+                    delay_range_end: delay_range_ms.1 as i64,
+                    sender: sender.to_string(),
+                };
+                reactor_client::apis::default_api::set_msg_delay(client_config, msg_delay_request)
+                    .await
+                    .unwrap();
             }
         }
     }
@@ -203,24 +233,6 @@ impl NodeHandle {
                     ChaosActionKind::Revert(op) => {
                         op.revert(&client_config, chaos_event.actor_name, &spawn_args)
                             .await
-                    }
-                    ChaosOp::MsgDelay(MsgDelayOp {
-                        delay_range_ms,
-                        sender,
-                        ..
-                    }) => {
-                        let msg_delay_request = MsgDelayRequest {
-                            actor_name: chaos_event.actor_name.clone(),
-                            delay_range_start: delay_range_ms.0 as i64,
-                            delay_range_end: delay_range_ms.1 as i64,
-                            sender,
-                        };
-                        reactor_client::apis::default_api::set_msg_delay(
-                            &client_config,
-                            msg_delay_request,
-                        )
-                        .await
-                        .unwrap();
                     }
                 };
             });

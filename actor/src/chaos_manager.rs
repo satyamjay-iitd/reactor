@@ -49,10 +49,9 @@ impl ChaosManager {
         if let (Some(factor), Some(prob)) = (
             self.msg_duplication_factor,
             self.msg_duplication_probability,
-        ) {
-            if rng.random_bool(prob as f64) {
-                return vec![msg; factor as usize];
-            }
+        ) && rng.random_bool(prob as f64)
+        {
+            return vec![msg; factor as usize];
         }
 
         vec![msg]
