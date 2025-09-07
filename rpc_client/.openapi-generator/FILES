@@ -1,9 +1,9 @@
 .gitignore
-.openapi-generator-ignore
 .travis.yml
 Cargo.toml
 README.md
 docs/DefaultApi.md
+docs/MsgDelayRequest.md
 docs/MsgDuplicationRequest.md
 docs/MsgLossRequest.md
 docs/RegistrationArgs.md
@@ -15,6 +15,7 @@ src/apis/default_api.rs
 src/apis/mod.rs
 src/lib.rs
 src/models/mod.rs
+src/models/msg_delay_request.rs
 src/models/msg_duplication_request.rs
 src/models/msg_loss_request.rs
 src/models/registration_args.rs

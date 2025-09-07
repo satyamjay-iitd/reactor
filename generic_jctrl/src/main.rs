@@ -127,6 +127,7 @@ port = 3000
                                 stop_ms: None,
                             }),
                             msg_duplication: None,
+                            msg_delay: None,
                         }),
                     }],
                 ),

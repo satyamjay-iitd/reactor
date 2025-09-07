@@ -68,12 +68,14 @@ pub struct MsgDuplicationRequest {
     pub probability: f32,
 }
 
-// For use inside jobcontrollerreq
-// pub enum ChaosConfig {
-//     Crash(CrashRequest),
-//     MsgLoss(MsgLossRequest),
-//     MsgDuplication(MsgDuplicationRequest),
-// }
+#[cfg_attr(feature = "swagger", derive(utoipa::ToSchema))]
+#[derive(Serialize, Deserialize, Debug)]
+pub struct MsgDelayRequest {
+    pub actor_name: String,
+    pub delay_range_start: u64,
+    pub delay_range_end: u64,
+    pub sender: String,
+}
 
 #[cfg_attr(feature = "swagger", derive(ToSchema))]
 #[derive(Serialize, Deserialize, Debug)]
@@ -311,6 +313,32 @@ async fn set_msg_loss(
 
 #[cfg_attr(feature="swagger", utoipa::path(
     post,
+    path = "/set_msg_delay",
+    responses(
+        (status = 200, description = "Chaos Config Applied!")
+    )
+))]
+async fn set_msg_delay(
+    State(state): State<Arc<AppState>>,
+    Json(delay_request): Json<MsgDelayRequest>,
+) -> impl IntoResponse {
+    state
+        .clone()
+        .tx
+        .send(JobControllerReq::MsgDelay {
+            actor_name: delay_request.actor_name,
+            sender: delay_request.sender,
+            delay_range_ms: (
+                delay_request.delay_range_start,
+                delay_request.delay_range_end,
+            ),
+        })
+        .unwrap();
+    (axum::http::StatusCode::OK, "Chaos Config Applied!")
+}
+
+#[cfg_attr(feature="swagger", utoipa::path(
+    post,
     path = "/unset_msg_duplication",
     responses(
         (status = 200, description = "Msg Duplication Config Removed")
@@ -361,6 +389,7 @@ async fn unset_msg_loss(
     stop_all_actors,
     set_duplication,
     set_msg_loss,
+    set_msg_delay
     unset_msg_duplication,
     unset_msg_loss
 ))]
@@ -376,6 +405,7 @@ pub async fn webserver(job_control_tx: UnboundedSender<JobControllerReq>, port: 
         .route("/stop_all_actors", post(stop_all_actors))
         .route("/set_duplication", post(set_duplication))
         .route("/set_msg_loss", post(set_msg_loss))
+        .route("/set_msg_delay", post(set_msg_delay))
         .route("/unset_msg_duplication", post(unset_msg_duplication))
         .route("/unset_msg_loss", post(unset_msg_loss))
         .with_state(state)

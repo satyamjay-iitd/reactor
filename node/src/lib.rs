@@ -78,6 +78,11 @@ pub(crate) enum JobControllerReq {
         factor: u32,
         probability: f32,
     },
+    MsgDelay {
+        actor_name: ActorAddr,
+        delay_range_ms: (u64, u64),
+        sender: String,
+    },
     DisableMsgLoss {
         actor_name: ActorAddr,
     },
@@ -279,6 +284,23 @@ async fn handle_job_req(
                 actor
                     .handle
                     .send(ControlInst::SetMsgLoss { probability })
+                    .await
+                    .unwrap();
+            }
+        }
+        JobControllerReq::MsgDelay {
+            actor_name,
+            delay_range_ms,
+            sender,
+        } => {
+            if let Some(actor) = local_actors.get(&actor_name) {
+                info!(target: "setting msg delay", actor_name, sender);
+                actor
+                    .handle
+                    .send(ControlInst::SetMsgDelay {
+                        delay_range_ms,
+                        sender,
+                    })
                     .await
                     .unwrap();
             }
