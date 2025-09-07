@@ -241,7 +241,7 @@ No authorization required
 
 ## unset_msg_delay
 
-> unset_msg_delay(body)
+> unset_msg_delay(disable_msg_delay_request)
 
 
 ### Parameters
@@ -249,7 +249,7 @@ No authorization required
 
 Name | Type | Description  | Required | Notes
 ------------- | ------------- | ------------- | ------------- | -------------
-**body** | **String** |  | [required] |
+**disable_msg_delay_request** | [**DisableMsgDelayRequest**](DisableMsgDelayRequest.md) |  | [required] |
 
 ### Return type
 
@@ -261,7 +261,7 @@ No authorization required
 
 ### HTTP request headers
 
-- **Content-Type**: text/plain
+- **Content-Type**: application/json
 - **Accept**: Not defined
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)

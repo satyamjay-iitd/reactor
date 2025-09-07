@@ -40,7 +40,9 @@ pub enum ControlInst {
     },
     UnsetMsgLoss,
     UnsetMsgDuplication,
-    UnsetMsgDelay,
+    UnsetMsgDelay {
+        sender: String,
+    },
 }
 
 #[derive(Debug)]

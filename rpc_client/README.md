@@ -41,6 +41,7 @@ Class | Method | HTTP request | Description
 
 ## Documentation For Models
 
+ - [DisableMsgDelayRequest](docs/DisableMsgDelayRequest.md)
  - [MsgDelayRequest](docs/MsgDelayRequest.md)
  - [MsgDuplicationRequest](docs/MsgDuplicationRequest.md)
  - [MsgLossRequest](docs/MsgLossRequest.md)

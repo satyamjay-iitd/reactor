@@ -381,10 +381,10 @@ pub async fn stop_all_actors(
 
 pub async fn unset_msg_delay(
     configuration: &configuration::Configuration,
-    body: &str,
+    disable_msg_delay_request: models::DisableMsgDelayRequest,
 ) -> Result<(), Error<UnsetMsgDelayError>> {
     // add a prefix to parameters to efficiently prevent name collisions
-    let p_body_body = body;
+    let p_body_disable_msg_delay_request = disable_msg_delay_request;
 
     let uri_str = format!("{}/unset_msg_delay", configuration.base_path);
     let mut req_builder = configuration
@@ -394,7 +394,7 @@ pub async fn unset_msg_delay(
     if let Some(ref user_agent) = configuration.user_agent {
         req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
     }
-    req_builder = req_builder.json(&p_body_body);
+    req_builder = req_builder.json(&p_body_disable_msg_delay_request);
 
     let req = req_builder.build()?;
     let resp = configuration.client.execute(req).await?;

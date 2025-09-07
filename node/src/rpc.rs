@@ -77,6 +77,13 @@ pub struct MsgDelayRequest {
     pub sender: String,
 }
 
+#[cfg_attr(feature = "swagger", derive(utoipa::ToSchema))]
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DisableMsgDelayRequest {
+    pub actor_name: String,
+    pub sender: String,
+}
+
 #[cfg_attr(feature = "swagger", derive(ToSchema))]
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct RegistrationArgs {
@@ -388,13 +395,14 @@ async fn unset_msg_loss(
 ))]
 async fn unset_msg_delay(
     State(state): State<Arc<AppState>>,
-    Json(actor_addr): Json<String>,
+    Json(disable_delay_request): Json<DisableMsgDelayRequest>,
 ) -> impl IntoResponse {
     state
         .clone()
         .tx
         .send(JobControllerReq::DisableMsgDelay {
-            actor_name: actor_addr,
+            actor_name: disable_delay_request.actor_name,
+            sender: disable_delay_request.sender,
         })
         .unwrap();
     (axum::http::StatusCode::OK, "Chaos Config Removed!")

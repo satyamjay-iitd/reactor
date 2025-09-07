@@ -1,3 +1,5 @@
+pub mod disable_msg_delay_request;
+pub use self::disable_msg_delay_request::DisableMsgDelayRequest;
 pub mod msg_delay_request;
 pub use self::msg_delay_request::MsgDelayRequest;
 pub mod msg_duplication_request;

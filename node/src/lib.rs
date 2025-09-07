@@ -91,6 +91,7 @@ pub(crate) enum JobControllerReq {
     },
     DisableMsgDelay {
         actor_name: ActorAddr,
+        sender: String,
     },
 }
 
@@ -324,10 +325,14 @@ async fn handle_job_req(
                     .unwrap();
             }
         }
-        JobControllerReq::DisableMsgDelay { actor_name } => {
+        JobControllerReq::DisableMsgDelay { actor_name, sender } => {
             if let Some(actor) = local_actors.get(&actor_name) {
                 info!(target: "disabling msg loss", actor_name);
-                actor.handle.send(ControlInst::UnsetMsgDelay).await.unwrap();
+                actor
+                    .handle
+                    .send(ControlInst::UnsetMsgDelay { sender })
+                    .await
+                    .unwrap();
             }
         }
     }

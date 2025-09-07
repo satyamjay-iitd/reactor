@@ -11,7 +11,10 @@ use placement::{
 use reactor_client::{
     self,
     apis::configuration::Configuration,
-    models::{MsgDelayRequest, MsgDuplicationRequest, MsgLossRequest, RemoteActorInfo, SpawnArgs},
+    models::{
+        DisableMsgDelayRequest, MsgDelayRequest, MsgDuplicationRequest, MsgLossRequest,
+        RemoteActorInfo, SpawnArgs,
+    },
 };
 
 use crate::placement::MsgDelayOp;
@@ -99,20 +102,17 @@ impl ChaosOp {
                 .await
                 .unwrap();
             }
-            ChaosOp::MsgDelay(MsgDelayOp {
-                delay_range_ms,
-                sender,
-                ..
-            }) => {
-                let msg_delay_request = MsgDelayRequest {
+            ChaosOp::MsgDelay(MsgDelayOp { sender, .. }) => {
+                let disable_delay_request = DisableMsgDelayRequest {
                     actor_name,
-                    delay_range_start: delay_range_ms.0 as i64,
-                    delay_range_end: delay_range_ms.1 as i64,
                     sender: sender.to_string(),
                 };
-                reactor_client::apis::default_api::set_msg_delay(client_config, msg_delay_request)
-                    .await
-                    .unwrap();
+                reactor_client::apis::default_api::unset_msg_delay(
+                    client_config,
+                    disable_delay_request,
+                )
+                .await
+                .unwrap();
             }
         }
     }

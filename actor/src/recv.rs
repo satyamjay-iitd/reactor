@@ -179,9 +179,12 @@ where
                     .await
                     .map_err(|_| ActorError::R2PErr)?;
             }
-            ControlInst::UnsetMsgDelay => {
-                // Not implemented
-                panic!("UnsetMsgDelay not implemented");
+            ControlInst::UnsetMsgDelay { sender } => {
+                if let Some(throttle_signal) = throttle_signals.lock().await.get(&sender) {
+                    throttle_signal.send((0, 0)).unwrap();
+                } else {
+                    error!("Sender {sender} not found");
+                }
             }
             ControlInst::Stop => {
                 cancel_token.cancel();
