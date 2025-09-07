@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use futures::future::join_all;
 use std::time::{Duration, Instant};
@@ -10,23 +10,118 @@ use placement::{
 };
 use reactor_client::{
     self,
+    apis::configuration::Configuration,
     models::{MsgDuplicationRequest, MsgLossRequest, RemoteActorInfo, SpawnArgs},
 };
 
 pub mod placement;
 
+impl ChaosOp {
+    async fn apply(&self, client_config: &Configuration, actor_name: String) {
+        match self {
+            ChaosOp::Crash(CrashOp { .. }) => {
+                reactor_client::apis::default_api::stop_actor(client_config, &actor_name)
+                    .await
+                    .unwrap();
+            }
+
+            ChaosOp::MsgLoss(MsgLossOp { probability, .. }) => {
+                let msg_loss_request = MsgLossRequest {
+                    actor_name,
+                    probability: probability.0,
+                };
+                reactor_client::apis::default_api::set_msg_loss(client_config, msg_loss_request)
+                    .await
+                    .unwrap();
+            }
+
+            ChaosOp::MsgDuplication(MsgDuplicationOp {
+                factor,
+                probability,
+                ..
+            }) => {
+                let msg_duplication_request = MsgDuplicationRequest {
+                    actor_name,
+                    factor: factor.0,
+                    probability: probability.0,
+                };
+                reactor_client::apis::default_api::set_duplication(
+                    client_config,
+                    msg_duplication_request,
+                )
+                .await
+                .unwrap();
+            }
+        }
+    }
+
+    async fn revert(
+        &self,
+        client_config: &Configuration,
+        _actor_name: String,
+        spawn_args: &SpawnArgs,
+    ) {
+        match self {
+            ChaosOp::Crash(CrashOp { .. }) => {
+                reactor_client::apis::default_api::start_actor(client_config, spawn_args.clone())
+                    .await
+                    .unwrap();
+            }
+
+            // ChaosOp::MsgLoss(MsgLossOp { probability, .. }) => {
+            //     let msg_loss_request = MsgLossRequest {
+            //         actor_name: actor_name,
+            //         probability: probability.0,
+            //     };
+            //     reactor_client::apis::default_api::set_msg_loss(
+            //         &client_config,
+            //         msg_loss_request,
+            //     )
+            //     .await
+            //     .unwrap();
+            // }
+
+            // ChaosOp::MsgDuplication(MsgDuplicationOp {
+            //     factor,
+            //     probability,
+            //     ..
+            // }) => {
+            //     let msg_duplication_request = MsgDuplicationRequest {
+            //         actor_name: actor_name,
+            //         factor: factor.0,
+            //         probability: probability.0,
+            //     };
+            //     reactor_client::apis::default_api::set_duplication(
+            //         &client_config,
+            //         msg_duplication_request,
+            //     )
+            //     .await
+            //     .unwrap();
+            // }
+            _ => {}
+        }
+    }
+}
+
+#[derive(Clone)]
+enum ChaosActionKind {
+    Apply(ChaosOp),
+    Revert(ChaosOp),
+}
+
 #[derive(Clone)]
 struct ChaosEvent {
     actor_name: String,
-    op: ChaosOp,
-    start_time: Instant,
-    _stop_time: Option<Instant>,
+    event_time: Instant,
+    action: ChaosActionKind,
 }
 
 struct NodeHandle {
     hostname: Hostname,
-    client_config: reactor_client::apis::configuration::Configuration,
+    client_config: Configuration,
     actors: Vec<RemoteActorInfo>,
+    /// Used to save actor spawn args for re-starting actors on the node (After a crash)
+    actor_spawn_args: HashMap<String, SpawnArgs>,
     loaded_libs: Vec<String>,
     chaos_schedule: Vec<ChaosEvent>,
 }
@@ -61,32 +156,37 @@ impl NodeHandle {
     }
 
     async fn place(&mut self, logical_op: &LogicalOp, physical_op: &PhysicalOp) -> RemoteActorInfo {
-        let mut remote_actor_info = reactor_client::apis::default_api::start_actor(
-            &self.client_config,
-            SpawnArgs {
-                actor_name: physical_op.actor_name.clone(),
-                operator_name: logical_op.name.clone(),
-                lib_name: logical_op.lib_name.clone(),
-                payload: physical_op.payload.clone(),
-            },
-        )
-        .await
-        .unwrap();
+        let spawn_args = SpawnArgs {
+            actor_name: physical_op.actor_name.clone(),
+            operator_name: logical_op.name.clone(),
+            lib_name: logical_op.lib_name.clone(),
+            payload: physical_op.payload.clone(),
+        };
+        self.actor_spawn_args
+            .insert(physical_op.actor_name.clone(), spawn_args.clone());
+        let mut remote_actor_info =
+            reactor_client::apis::default_api::start_actor(&self.client_config, spawn_args)
+                .await
+                .unwrap();
         remote_actor_info.hostname = self.hostname.to_string();
         self.actors.push(remote_actor_info.clone());
         if let Some(chaos_map) = &physical_op.chaos {
             for chaos_op in chaos_map.iter() {
                 let now = Instant::now();
                 let start_time = now + Duration::from_millis(chaos_op.start_ms() as u64);
-                let _stop_time = chaos_op
-                    .stop_ms()
-                    .map(|stop_ms| now + Duration::from_millis(stop_ms as u64));
                 self.chaos_schedule.push(ChaosEvent {
-                    actor_name: remote_actor_info.name.clone(),
-                    op: chaos_op.clone(),
-                    start_time,
-                    _stop_time,
+                    actor_name: physical_op.actor_name.clone(),
+                    event_time: start_time,
+                    action: ChaosActionKind::Apply(chaos_op.clone()),
                 });
+                if let Some(stop_ms) = chaos_op.stop_ms() {
+                    let stop_time = now + Duration::from_millis(stop_ms as u64);
+                    self.chaos_schedule.push(ChaosEvent {
+                        actor_name: physical_op.actor_name.clone(),
+                        event_time: stop_time,
+                        action: ChaosActionKind::Revert(chaos_op.clone()),
+                    });
+                }
             }
         }
         remote_actor_info
@@ -103,98 +203,24 @@ impl NodeHandle {
         // and this function keeps running and sends requests to non-existent nodes
         for chaos_event in self.chaos_schedule.clone() {
             let client_config = self.client_config.clone();
+            let spawn_args = self.actor_spawn_args[&chaos_event.actor_name].clone();
 
             tokio::spawn(async move {
                 let now = Instant::now();
-                if chaos_event.start_time > now {
-                    sleep(chaos_event.start_time - now).await;
+                if chaos_event.event_time > now {
+                    sleep(chaos_event.event_time - now).await;
                 }
-                match chaos_event.op {
-                    ChaosOp::Crash(CrashOp { .. }) => {
-                        reactor_client::apis::default_api::stop_actor(
-                            &client_config,
-                            &chaos_event.actor_name.clone(),
-                        )
-                        .await
-                        .unwrap();
-                    }
 
-                    ChaosOp::MsgLoss(MsgLossOp { probability, .. }) => {
-                        let msg_loss_request = MsgLossRequest {
-                            actor_name: chaos_event.actor_name.clone(),
-                            probability: probability.0,
-                        };
-                        reactor_client::apis::default_api::set_msg_loss(
-                            &client_config,
-                            msg_loss_request,
-                        )
-                        .await
-                        .unwrap();
+                match chaos_event.action {
+                    ChaosActionKind::Apply(op) => {
+                        op.apply(&client_config, chaos_event.actor_name).await
                     }
-
-                    ChaosOp::MsgDuplication(MsgDuplicationOp {
-                        factor,
-                        probability,
-                        ..
-                    }) => {
-                        let msg_duplication_request = MsgDuplicationRequest {
-                            actor_name: chaos_event.actor_name.clone(),
-                            factor: factor.0,
-                            probability: probability.0,
-                        };
-                        reactor_client::apis::default_api::set_duplication(
-                            &client_config,
-                            msg_duplication_request,
-                        )
-                        .await
-                        .unwrap();
+                    ChaosActionKind::Revert(op) => {
+                        op.revert(&client_config, chaos_event.actor_name, &spawn_args)
+                            .await
                     }
-                };
+                }
             });
-            // let chaos_config = match chaos_event.op {
-            //     ChaosOp::Crash { .. } => ChaosConfig {
-            //         kind: ChaosType::Crash,
-            //         actor_name: chaos_event.actor_name,
-            //         factor: None,
-            //         probability: None,
-            //     },
-
-            //     ChaosOp::MsgLoss( MsgLossOp { probability, .. } ) => ChaosConfig {
-            //         kind: ChaosType::MsgLoss,
-            //         actor_name: chaos_event.actor_name,
-            //         factor: None,
-            //         probability: Probability
-            //     },
-
-            //     ChaosOp::MsgDuplication(MsgDuplicationOp { factor, probability, ..}) => ChaosConfig {
-            //         kind: ChaosType::MsgDuplication,
-            //         actor_name: chaos_event.actor_name,
-            //         factor: Some(factor),
-            //         probability: Some(probability),
-            //     },
-            // };
-            // tokio::spawn(async move {
-            //     let now = Instant::now();
-            //     if chaos_event.start_time > now {
-            //         sleep(chaos_event.start_time - now).await;
-            //     }
-            //     reactor_client::apis::default_api::add_chaos(&client_config, chaos_config)
-            //         .await
-            //         .unwrap();
-            // });
-
-            // ? This is for later
-            // if let Some(stop) = stop_opt {
-            //     tokio::spawn(async move {
-            //         let now = Instant::now();
-            //         if stop > now {
-            //             sleep(stop - now).await;
-            //         }
-            //         // reactor_client::apis::default_api::stop_actor(&client_config, actor.clone())
-            //         //     .await
-            //         //     .unwrap();
-            //     });
-            // }
         }
     }
 
@@ -224,6 +250,7 @@ impl<PM: PlacementManager> JobController<PM> {
                 hostname,
                 client_config: self.client_config(hostname, port),
                 actors: Vec::new(),
+                actor_spawn_args: HashMap::new(),
                 loaded_libs: Vec::new(),
                 chaos_schedule: Vec::new(),
             },
