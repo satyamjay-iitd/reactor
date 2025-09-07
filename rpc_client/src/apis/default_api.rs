@@ -65,6 +65,20 @@ pub enum StopAllActorsError {
     UnknownValue(serde_json::Value),
 }
 
+/// struct for typed errors of method [`unset_msg_duplication`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum UnsetMsgDuplicationError {
+    UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`unset_msg_loss`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum UnsetMsgLossError {
+    UnknownValue(serde_json::Value),
+}
+
 pub async fn actor_added(
     configuration: &configuration::Configuration,
     remote_actor_info: models::RemoteActorInfo,
@@ -308,6 +322,76 @@ pub async fn stop_all_actors(
     } else {
         let content = resp.text().await?;
         let entity: Option<StopAllActorsError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
+}
+
+pub async fn unset_msg_duplication(
+    configuration: &configuration::Configuration,
+    body: &str,
+) -> Result<(), Error<UnsetMsgDuplicationError>> {
+    // add a prefix to parameters to efficiently prevent name collisions
+    let p_body_body = body;
+
+    let uri_str = format!("{}/unset_msg_duplication", configuration.base_path);
+    let mut req_builder = configuration
+        .client
+        .request(reqwest::Method::POST, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    req_builder = req_builder.json(&p_body_body);
+
+    let req = req_builder.build()?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+
+    if !status.is_client_error() && !status.is_server_error() {
+        Ok(())
+    } else {
+        let content = resp.text().await?;
+        let entity: Option<UnsetMsgDuplicationError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
+}
+
+pub async fn unset_msg_loss(
+    configuration: &configuration::Configuration,
+    body: &str,
+) -> Result<(), Error<UnsetMsgLossError>> {
+    // add a prefix to parameters to efficiently prevent name collisions
+    let p_body_body = body;
+
+    let uri_str = format!("{}/unset_msg_loss", configuration.base_path);
+    let mut req_builder = configuration
+        .client
+        .request(reqwest::Method::POST, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    req_builder = req_builder.json(&p_body_body);
+
+    let req = req_builder.build()?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+
+    if !status.is_client_error() && !status.is_server_error() {
+        Ok(())
+    } else {
+        let content = resp.text().await?;
+        let entity: Option<UnsetMsgLossError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
             content,

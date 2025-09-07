@@ -29,6 +29,8 @@ pub enum ControlInst {
     Stop,
     SetMsgLoss { probability: f32 },
     SetMsgDuplication { factor: u32, probability: f32 },
+    UnsetMsgLoss,
+    UnsetMsgDuplication,
 }
 
 #[derive(Debug)]

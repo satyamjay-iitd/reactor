@@ -58,7 +58,7 @@ impl ChaosOp {
     async fn revert(
         &self,
         client_config: &Configuration,
-        _actor_name: String,
+        actor_name: String,
         spawn_args: &SpawnArgs,
     ) {
         match self {
@@ -68,37 +68,20 @@ impl ChaosOp {
                     .unwrap();
             }
 
-            // ChaosOp::MsgLoss(MsgLossOp { probability, .. }) => {
-            //     let msg_loss_request = MsgLossRequest {
-            //         actor_name: actor_name,
-            //         probability: probability.0,
-            //     };
-            //     reactor_client::apis::default_api::set_msg_loss(
-            //         &client_config,
-            //         msg_loss_request,
-            //     )
-            //     .await
-            //     .unwrap();
-            // }
+            ChaosOp::MsgLoss(MsgLossOp { .. }) => {
+                reactor_client::apis::default_api::unset_msg_loss(client_config, &actor_name)
+                    .await
+                    .unwrap();
+            }
 
-            // ChaosOp::MsgDuplication(MsgDuplicationOp {
-            //     factor,
-            //     probability,
-            //     ..
-            // }) => {
-            //     let msg_duplication_request = MsgDuplicationRequest {
-            //         actor_name: actor_name,
-            //         factor: factor.0,
-            //         probability: probability.0,
-            //     };
-            //     reactor_client::apis::default_api::set_duplication(
-            //         &client_config,
-            //         msg_duplication_request,
-            //     )
-            //     .await
-            //     .unwrap();
-            // }
-            _ => {}
+            ChaosOp::MsgDuplication(MsgDuplicationOp { .. }) => {
+                reactor_client::apis::default_api::unset_msg_duplication(
+                    client_config,
+                    &actor_name,
+                )
+                .await
+                .unwrap();
+            }
         }
     }
 }
