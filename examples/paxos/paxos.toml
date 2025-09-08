@@ -31,7 +31,7 @@ port = 3000
   acceptors = ["a1", "a2", "a3"]
   # chaos.msg_loss = { start_ms = 100, probability = 0.7 }
   # chaos.msg_duplication = { start_ms = 0, probability = 0.7 , factor=2 }
-  chaos.msg_delay = { start_ms = 0, delay_range_ms = [500, 1000] , senders = ["a1"] }
+  # chaos.msg_delay = { start_ms = 0, delay_range_ms = [500, 1000] , senders = ["a1"] }
 
   # [[placement.leader]]
   # nodename = "node1"
