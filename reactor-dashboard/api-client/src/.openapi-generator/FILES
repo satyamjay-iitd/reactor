@@ -1,0 +1,17 @@
+.gitignore
+.npmignore
+api.ts
+base.ts
+common.ts
+configuration.ts
+docs/DefaultApi.md
+docs/DisableMsgDelayRequest.md
+docs/MsgDelayRequest.md
+docs/MsgDuplicationRequest.md
+docs/MsgLossRequest.md
+docs/RegistrationArgs.md
+docs/RemoteActorInfo.md
+docs/SpawnArgs.md
+docs/StatusResponse.md
+git_push.sh
+index.ts

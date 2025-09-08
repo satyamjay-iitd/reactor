@@ -1,0 +1,14 @@
+.gitignore
+.npmignore
+.openapi-generator-ignore
+api.ts
+base.ts
+common.ts
+configuration.ts
+docs/DefaultApi.md
+docs/RegistrationArgs.md
+docs/RemoteActorInfo.md
+docs/SpawnArgs.md
+docs/StatusResponse.md
+git_push.sh
+index.ts

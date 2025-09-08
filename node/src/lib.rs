@@ -29,7 +29,7 @@ use rpc::webserver;
 mod op_lib_manager;
 
 pub type NodeAddr = &'static str;
-pub type ActorSpawnCB = fn(RuntimeCtx, HashMap<String, serde_json::Value>);
+// pub type ActorSpawnCB = fn(RuntimeCtx, HashMap<String, serde_json::Value>);
 
 pub type SetupSharedLogger = fn(SharedLogger);
 
@@ -45,7 +45,12 @@ pub(crate) struct SpawnResult {
 #[derive(Debug)]
 pub(crate) struct RegisterResult {}
 
-// use rpc::{ChaosConfig, };
+#[derive(Debug)]
+pub(crate) struct NodeStatus {
+    actors: Vec<String>,
+    loaded_libs: HashMap<String, Vec<String>>,
+}
+
 /// Global Controller
 pub(crate) enum JobControllerReq {
     #[cfg(feature = "dynop")]
@@ -92,6 +97,9 @@ pub(crate) enum JobControllerReq {
     DisableMsgDelay {
         actor_name: ActorAddr,
         senders: Vec<String>,
+    },
+    GetStatus {
+        resp_tx: oneshot::Sender<NodeStatus>,
     },
 }
 
@@ -219,6 +227,8 @@ async fn handle_job_req(
 
             let lib = op_lib.get_lib(&lib_name);
             unsafe {
+                use reactor_actor::ActorSpawnCB;
+
                 let shared_logger: libloading::Symbol<SetupSharedLogger> =
                     lib.get(b"setup_shared_logger_ref").unwrap();
                 let logger = SharedLogger::new();
@@ -337,6 +347,22 @@ async fn handle_job_req(
                     .await
                     .unwrap();
             }
+        }
+        JobControllerReq::GetStatus { resp_tx } => {
+            use tracing::{Level, event};
+
+            event!(
+                target: "serving::get_status",
+                Level::INFO,
+                total_actors = local_actors.len(),
+                "serving get status"
+            );
+            resp_tx
+                .send(NodeStatus {
+                    actors: local_actors.keys().cloned().collect(),
+                    loaded_libs: op_lib.lib_names(),
+                })
+                .unwrap();
         }
     }
 }

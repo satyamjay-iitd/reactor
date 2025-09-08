@@ -1,10 +1,11 @@
 // #![feature(log_syntax)]
 
-use std::{borrow::Cow, marker::PhantomData};
+use std::{borrow::Cow, collections::HashMap, marker::PhantomData};
 
 use bincode::{Decode, Encode};
 use err::ActorError;
 use futures::future::join_all;
+pub use inventory as __inventory;
 use reactor_channel::{ReactorChannelTx, reactor_channel};
 use recv::rx;
 use send::tx;
@@ -25,6 +26,35 @@ mod send;
 
 pub use node_comm::{Connection, ControlInst, ControlReq, NodeComm};
 pub use reactor_channel::{HasPriority, MAX_PRIO};
+pub use reactor_macros::actor;
+
+pub type ActorSpawnCB = fn(RuntimeCtx, HashMap<String, serde_json::Value>);
+
+pub struct ExportedFn {
+    pub name: &'static str,
+    pub func: ActorSpawnCB,
+}
+
+__inventory::collect!(ExportedFn);
+
+#[macro_export]
+macro_rules! register_actor {
+    ($fn_name:path) => {
+        $crate::__inventory::submit! {
+            $crate::ExportedFn {
+                name: stringify!($fn_name),
+                func: $fn_name,
+            }
+        }
+    };
+}
+
+#[unsafe(no_mangle)]
+fn get_registered() -> Vec<String> {
+    inventory::iter::<ExportedFn>()
+        .map(|x| x.name.to_string())
+        .collect()
+}
 
 static CHANNEL_SIZE: usize = 1 << 20;
 /// Messages that can flow between the actors.

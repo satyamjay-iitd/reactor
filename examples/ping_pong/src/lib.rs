@@ -3,7 +3,7 @@ pub use reactor_actor::setup_shared_logger_ref;
 use bincode::{Decode, Encode};
 
 use reactor_actor::codec::BincodeCodec;
-use reactor_actor::{BehaviourBuilder, RouteTo, RuntimeCtx};
+use reactor_actor::{BehaviourBuilder, RouteTo, RuntimeCtx, actor};
 use reactor_macros::{DefaultPrio, Msg as DeriveMsg};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -77,27 +77,25 @@ impl Sender {
 //                                ACTORS
 // //////////////////////////////////////////////////////////////////////////////
 
-pub async fn actor(ctx: RuntimeCtx, other_addr: String) {
-    BehaviourBuilder::new(Processor {}, BincodeCodec::default())
-        .send(Sender::new(other_addr))
-        .generator_if(ctx.addr == "pinger", || vec![PingPongMsg::Ping].into_iter())
-        .build()
-        .run(ctx)
-        .await
-        .unwrap();
-}
-
 lazy_static::lazy_static! {
     static ref RUNTIME: tokio::runtime::Runtime = tokio::runtime::Runtime::new().unwrap();
 }
 
-#[unsafe(no_mangle)]
+#[actor]
 pub fn pingpong(ctx: RuntimeCtx, mut payload: HashMap<String, serde_json::Value>) {
-    let other: String = payload
+    let other_addr: String = payload
         .remove("other")
         .unwrap()
         .as_str()
         .unwrap()
         .to_string();
-    RUNTIME.spawn(actor(ctx, other));
+    RUNTIME.spawn(async move {
+        BehaviourBuilder::new(Processor {}, BincodeCodec::default())
+            .send(Sender::new(other_addr))
+            .generator_if(ctx.addr == "pinger", || vec![PingPongMsg::Ping].into_iter())
+            .build()
+            .run(ctx)
+            .await
+            .unwrap();
+    });
 }
