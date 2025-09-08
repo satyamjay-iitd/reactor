@@ -20,6 +20,7 @@ tracing = {version = "0.1.41", features = ["std", "attributes"] }
 tracing-subscriber = "0.3.19"
 tracing-shared = "0.1.5"
 criterion = "0.6.0"
+rand = "0.9.2"
 serde_json = "1.0.143"
 inventory = "0.3.21"
 reactor-macros = { path = "../macros" }

@@ -8,7 +8,7 @@ use tokio::sync::{
     mpsc::{self, Sender, UnboundedReceiver, channel, unbounded_channel},
     oneshot,
 };
-use tracing::{Level, error, event, warn};
+use tracing::{error, info, warn};
 use tracing_shared::SharedLogger;
 // use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -70,7 +70,34 @@ pub(crate) enum JobControllerReq {
         addr: ActorAddr,
         sock_addr: SocketAddr,
     },
+    StopActor {
+        addr: ActorAddr,
+    },
     StopAllActors,
+    MsgLoss {
+        actor_name: ActorAddr,
+        probability: f32,
+    },
+    MsgDuplication {
+        actor_name: ActorAddr,
+        factor: u32,
+        probability: f32,
+    },
+    MsgDelay {
+        actor_name: ActorAddr,
+        delay_range_ms: (u64, u64),
+        senders: Vec<String>,
+    },
+    DisableMsgLoss {
+        actor_name: ActorAddr,
+    },
+    DisableMsgDuplication {
+        actor_name: ActorAddr,
+    },
+    DisableMsgDelay {
+        actor_name: ActorAddr,
+        senders: Vec<String>,
+    },
     GetStatus {
         resp_tx: oneshot::Sender<NodeStatus>,
     },
@@ -93,9 +120,9 @@ pub async fn node_controller(port: u16, operator_dir: PathBuf) {
     let (job_control_tx, job_control_rx) = unbounded_channel();
 
     let server_handle = tokio::spawn(webserver(job_control_tx, port));
-    event!(parent: &span, Level::INFO, msg="spawned_http_server", port=port);
+    info!(parent: &span, msg="spawned_http_server", port=port);
 
-    event!(parent: &span, Level::INFO, msg="spawned_http_server", ?ops);
+    info!(parent: &span, msg="spawned_http_server", ?ops);
     let control_loop = tokio::spawn(actor_control_loop(job_control_rx, ops));
 
     drop(span);
@@ -111,7 +138,6 @@ fn load_ops(operator_dir: PathBuf) -> OpLibrary {
     use std::fs;
 
     use libloading::Library;
-    use tracing::{Level, event};
 
     let mut op_libs = OpLibrary::default();
 
@@ -127,7 +153,7 @@ fn load_ops(operator_dir: PathBuf) -> OpLibrary {
                     .strip_prefix("lib")
                     .unwrap_or(&file_stem)
                     .to_string();
-                event!(target: "loaded_lib", Level::INFO, lib_name);
+                info!(target: "loaded_lib", lib_name);
                 unsafe {
                     let lib = Library::new(&path).unwrap();
                     op_libs.add_lib(lib_name, lib);
@@ -186,7 +212,7 @@ async fn handle_job_req(
     actor_contrl_tx: &Sender<ControlReq>,
     port: u16,
 ) {
-    use tracing::{Level, event};
+    use tracing::info;
 
     match req {
         JobControllerReq::SpawnActor {
@@ -196,7 +222,7 @@ async fn handle_job_req(
             lib_name,
             payload,
         } => {
-            event!(target: "serving spawn actor", Level::INFO, addr, op_name, lib_name, ?payload);
+            info!(target: "serving spawn actor", addr, op_name, lib_name, ?payload);
             let (control_tx, control_rx) = channel(20);
 
             let lib = op_lib.get_lib(&lib_name);
@@ -220,12 +246,12 @@ async fn handle_job_req(
                     .send(ControlInst::StartTcpRecv(port))
                     .await
                     .unwrap();
-                event!(target: "actor spawned", Level::INFO, port);
+                info!(target: "actor spawned", port);
                 local_actors.insert(addr, LocalActor { handle: control_tx });
             }
         }
         JobControllerReq::RemoteActorAdded { addr, sock_addr } => {
-            event!(target: "serving remote actor added", Level::INFO, addr, ?sock_addr);
+            info!(target: "serving remote actor added", addr, ?sock_addr);
             remote_actors.insert(
                 addr,
                 RemoteActor {
@@ -233,15 +259,104 @@ async fn handle_job_req(
                 },
             );
         }
-        JobControllerReq::StopAllActors => {
-            event!(target: "serving stop all actors", Level::INFO, total_actors=local_actors.len());
-            for (name, actor) in local_actors.drain() {
-                event!(target: "stopping actor", Level::INFO, name);
+        JobControllerReq::StopActor { addr } => {
+            if let Some(actor) = local_actors.remove(&addr) {
+                info!(target: "stopping actor", addr);
                 actor.handle.send(ControlInst::Stop).await.unwrap();
             }
         }
+        JobControllerReq::StopAllActors => {
+            info!(target: "serving stop all actors", total_actors=local_actors.len());
+            for (name, actor) in local_actors.drain() {
+                info!(target: "stopping actor", name);
+                actor.handle.send(ControlInst::Stop).await.unwrap();
+            }
+        }
+        JobControllerReq::MsgDuplication {
+            actor_name,
+            factor,
+            probability,
+        } => {
+            if let Some(actor) = local_actors.get(&actor_name) {
+                info!(target: "setting msg duplication", actor_name, factor, probability);
+                actor
+                    .handle
+                    .send(ControlInst::SetMsgDuplication {
+                        factor,
+                        probability,
+                    })
+                    .await
+                    .unwrap();
+            }
+        }
+        JobControllerReq::MsgLoss {
+            actor_name,
+            probability,
+        } => {
+            if let Some(actor) = local_actors.get(&actor_name) {
+                info!(target: "setting msg loss", actor_name, probability);
+                actor
+                    .handle
+                    .send(ControlInst::SetMsgLoss { probability })
+                    .await
+                    .unwrap();
+            }
+        }
+        JobControllerReq::MsgDelay {
+            actor_name,
+            delay_range_ms,
+            senders,
+        } => {
+            if let Some(actor) = local_actors.get(&actor_name) {
+                info!(target: "setting msg delay", actor_name, ?senders);
+                actor
+                    .handle
+                    .send(ControlInst::SetMsgDelay {
+                        delay_range_ms,
+                        senders,
+                    })
+                    .await
+                    .unwrap();
+            }
+        }
+        JobControllerReq::DisableMsgLoss { actor_name } => {
+            if let Some(actor) = local_actors.get(&actor_name) {
+                info!(target: "disabling msg loss", actor_name);
+                actor.handle.send(ControlInst::UnsetMsgLoss).await.unwrap();
+            }
+        }
+        JobControllerReq::DisableMsgDuplication { actor_name } => {
+            if let Some(actor) = local_actors.get(&actor_name) {
+                info!(target: "disabling msg duplication", actor_name);
+                actor
+                    .handle
+                    .send(ControlInst::UnsetMsgDuplication)
+                    .await
+                    .unwrap();
+            }
+        }
+        JobControllerReq::DisableMsgDelay {
+            actor_name,
+            senders,
+        } => {
+            if let Some(actor) = local_actors.get(&actor_name) {
+                info!(target: "disabling msg loss", actor_name);
+                actor
+                    .handle
+                    .send(ControlInst::UnsetMsgDelay { senders })
+                    .await
+                    .unwrap();
+            }
+        }
         JobControllerReq::GetStatus { resp_tx } => {
-            event!(target: "serving get status", Level::INFO, total_actors=local_actors.len());
+            use tracing::{Level, event};
+
+            event!(
+                target: "serving::get_status",
+                Level::INFO,
+                total_actors = local_actors.len(),
+                "serving get status"
+            );
             resp_tx
                 .send(NodeStatus {
                     actors: local_actors.keys().cloned().collect(),
@@ -260,9 +375,9 @@ async fn handle_actor_req(
 ) {
     match req {
         ControlReq::Resolve { addr, resp_tx } => {
-            event!(target: "serving resolve addr", Level::INFO, addr);
+            info!(target: "serving resolve addr", addr);
             if let Some(local) = local_actors.get(&addr) {
-                event!(target: "resolved", Level::INFO, addr="local");
+                info!(target: "resolved", addr="local");
                 let (write_half, read_half) = mpsc::channel(1 << 10);
                 local
                     .handle
@@ -271,7 +386,7 @@ async fn handle_actor_req(
                     .unwrap();
                 resp_tx.send(Connection::Local(write_half)).unwrap();
             } else if let Some(local) = remote_actors.get(&addr) {
-                event!(target: "resolved", Level::INFO, addr=?local.remote_actor_addr);
+                info!(target: "resolved", addr=?local.remote_actor_addr);
                 resp_tx
                     .send(Connection::Remote(local.remote_actor_addr))
                     .unwrap();
@@ -408,6 +523,12 @@ async fn handle_job_req<CG: CodeGenerator + Send>(
                     remote_actor_addr: sock_addr,
                 },
             );
+        }
+        JobControllerReq::StopActor { addr } => {
+            if let Some(actor) = local_actors.remove(&addr) {
+                log::info!("[Node] Stopping Actor {addr}");
+                actor.handle.send(ControlInst::Stop).await.unwrap();
+            }
         }
         JobControllerReq::StopAllActors => {
             for (name, actor) in local_actors.drain() {

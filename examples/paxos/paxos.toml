@@ -1,0 +1,44 @@
+[[ops]]
+name = "acceptor"
+lib_name = "paxos"
+
+[[ops]]
+name = "leader"
+lib_name = "paxos"
+
+[[nodes]]
+name = "node1"
+hostname = "0.0.0.0"
+port = 3000
+
+[placement]
+  [[placement.acceptor]]
+  nodename = "node1"
+  actor_name = "a1"
+  # chaos.crash = { crash_ms = 2000 }
+
+  [[placement.acceptor]]
+  nodename = "node1"
+  actor_name = "a2"
+
+  [[placement.acceptor]]
+  nodename = "node1"
+  actor_name = "a3"
+
+  [[placement.leader]]
+  nodename = "node1"
+  actor_name = "l1"
+  acceptors = ["a1", "a2", "a3"]
+  # chaos.msg_loss = { start_ms = 100, probability = 0.7 }
+  # chaos.msg_duplication = { start_ms = 0, probability = 0.7 , factor=2 }
+  chaos.msg_delay = { start_ms = 0, delay_range_ms = [500, 1000] , senders = ["a1"] }
+
+  # [[placement.leader]]
+  # nodename = "node1"
+  # actor_name = "l2"
+  # acceptors = ["a1", "a2", "a3"]
+
+  # [[placement.leader]]
+  # nodename = "node1"
+  # actor_name = "l3"
+  # acceptors = ["a1", "a2", "a3"]

@@ -48,6 +48,43 @@ pub(crate) struct RemoteActorInfo {
     pub port: u16,
 }
 
+// #[cfg_attr(feature = "swagger", derive(utoipa::ToSchema))]
+// #[derive(Serialize, Deserialize, Debug)]
+// pub struct CrashRequest {
+//     pub actor_name: String,
+// }
+
+#[cfg_attr(feature = "swagger", derive(utoipa::ToSchema))]
+#[derive(Serialize, Deserialize, Debug)]
+pub struct MsgLossRequest {
+    pub actor_name: String,
+    pub probability: f32,
+}
+
+#[cfg_attr(feature = "swagger", derive(utoipa::ToSchema))]
+#[derive(Serialize, Deserialize, Debug)]
+pub struct MsgDuplicationRequest {
+    pub actor_name: String,
+    pub factor: u32,
+    pub probability: f32,
+}
+
+#[cfg_attr(feature = "swagger", derive(utoipa::ToSchema))]
+#[derive(Serialize, Deserialize, Debug)]
+pub struct MsgDelayRequest {
+    pub actor_name: String,
+    pub delay_range_start: u64,
+    pub delay_range_end: u64,
+    pub senders: Vec<String>,
+}
+
+#[cfg_attr(feature = "swagger", derive(utoipa::ToSchema))]
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DisableMsgDelayRequest {
+    pub actor_name: String,
+    pub senders: Vec<String>,
+}
+
 #[cfg_attr(feature = "swagger", derive(ToSchema))]
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct RegistrationArgs {
@@ -198,6 +235,31 @@ async fn actor_added(
 
 #[cfg_attr(feature="swagger", utoipa::path(
     post,
+    path = "/stop_actor",
+    responses(
+        (status = 200, description = "Actor stop initiated"),
+        (status = 404, description = "Actor not found")
+    )
+))]
+async fn stop_actor(
+    State(state): State<Arc<AppState>>,
+    Json(actor_addr): Json<String>,
+) -> impl IntoResponse {
+    state
+        .clone()
+        .tx
+        .send(JobControllerReq::StopActor {
+            addr: actor_addr.clone(),
+        })
+        .unwrap();
+    (
+        axum::http::StatusCode::OK,
+        format!("Actor {} Stopped!", actor_addr),
+    )
+}
+
+#[cfg_attr(feature="swagger", utoipa::path(
+    post,
     path = "/stop_all_actors",
     responses(
         (status = 200, description = "Actors stop initiated")
@@ -212,6 +274,140 @@ async fn stop_all_actors(State(state): State<Arc<AppState>>) -> impl IntoRespons
     (axum::http::StatusCode::OK, "Actors Stopped!")
 }
 
+#[cfg_attr(feature="swagger", utoipa::path(
+    post,
+    path = "/set_duplication",
+    responses(
+        (status = 200, description = "Msg Duplication Config Applied")
+    )
+))]
+async fn set_duplication(
+    State(state): State<Arc<AppState>>,
+    Json(dupl_request): Json<MsgDuplicationRequest>,
+) -> impl IntoResponse {
+    state
+        .clone()
+        .tx
+        .send(JobControllerReq::MsgDuplication {
+            actor_name: dupl_request.actor_name,
+            factor: dupl_request.factor,
+            probability: dupl_request.probability,
+        })
+        .unwrap();
+    (axum::http::StatusCode::OK, "Chaos Config Applied!")
+}
+
+#[cfg_attr(feature="swagger", utoipa::path(
+    post,
+    path = "/set_msg_loss",
+    responses(
+        (status = 200, description = "Msg Loss Config Applied")
+    )
+))]
+async fn set_msg_loss(
+    State(state): State<Arc<AppState>>,
+    Json(loss_request): Json<MsgLossRequest>,
+) -> impl IntoResponse {
+    state
+        .clone()
+        .tx
+        .send(JobControllerReq::MsgLoss {
+            actor_name: loss_request.actor_name,
+            probability: loss_request.probability,
+        })
+        .unwrap();
+    (axum::http::StatusCode::OK, "Chaos Config Applied!")
+}
+
+#[cfg_attr(feature="swagger", utoipa::path(
+    post,
+    path = "/set_msg_delay",
+    responses(
+        (status = 200, description = "Msg Delay Config Applied")
+    )
+))]
+async fn set_msg_delay(
+    State(state): State<Arc<AppState>>,
+    Json(delay_request): Json<MsgDelayRequest>,
+) -> impl IntoResponse {
+    state
+        .clone()
+        .tx
+        .send(JobControllerReq::MsgDelay {
+            actor_name: delay_request.actor_name,
+            senders: delay_request.senders,
+            delay_range_ms: (
+                delay_request.delay_range_start,
+                delay_request.delay_range_end,
+            ),
+        })
+        .unwrap();
+    (axum::http::StatusCode::OK, "Chaos Config Applied!")
+}
+
+#[cfg_attr(feature="swagger", utoipa::path(
+    post,
+    path = "/unset_msg_duplication",
+    responses(
+        (status = 200, description = "Msg Duplication Config Removed")
+    )
+))]
+async fn unset_msg_duplication(
+    State(state): State<Arc<AppState>>,
+    Json(actor_addr): Json<String>,
+) -> impl IntoResponse {
+    state
+        .clone()
+        .tx
+        .send(JobControllerReq::DisableMsgDuplication {
+            actor_name: actor_addr,
+        })
+        .unwrap();
+    (axum::http::StatusCode::OK, "Chaos Config Removed!")
+}
+
+#[cfg_attr(feature="swagger", utoipa::path(
+    post,
+    path = "/unset_msg_loss",
+    responses(
+        (status = 200, description = "Msg Loss Config Removed")
+    )
+))]
+async fn unset_msg_loss(
+    State(state): State<Arc<AppState>>,
+    Json(actor_addr): Json<String>,
+) -> impl IntoResponse {
+    state
+        .clone()
+        .tx
+        .send(JobControllerReq::DisableMsgLoss {
+            actor_name: actor_addr,
+        })
+        .unwrap();
+    (axum::http::StatusCode::OK, "Chaos Config Removed!")
+}
+
+#[cfg_attr(feature="swagger", utoipa::path(
+    post,
+    path = "/unset_msg_delay",
+    responses(
+        (status = 200, description = "Msg Delay Config Removed")
+    )
+))]
+async fn unset_msg_delay(
+    State(state): State<Arc<AppState>>,
+    Json(disable_delay_request): Json<DisableMsgDelayRequest>,
+) -> impl IntoResponse {
+    state
+        .clone()
+        .tx
+        .send(JobControllerReq::DisableMsgDelay {
+            actor_name: disable_delay_request.actor_name,
+            senders: disable_delay_request.senders,
+        })
+        .unwrap();
+    (axum::http::StatusCode::OK, "Chaos Config Removed!")
+}
 #[derive(Serialize, ToSchema)]
 struct StatusResponse {
     actors: Vec<String>,
@@ -242,7 +438,20 @@ async fn get_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 
 #[cfg(feature = "swagger")]
 #[derive(OpenApi)]
-#[openapi(paths(start_actor, actor_added, register_lib, stop_all_actors, get_status))]
+#[openapi(paths(
+    start_actor,
+    actor_added,
+    register_lib,
+    stop_actor,
+    stop_all_actors,
+    set_duplication,
+    set_msg_loss,
+    set_msg_delay,
+    unset_msg_duplication,
+    unset_msg_loss,
+    unset_msg_delay,
+    get_status
+))]
 struct ApiDoc;
 
 pub async fn webserver(job_control_tx: UnboundedSender<JobControllerReq>, port: u16) {
@@ -252,7 +461,14 @@ pub async fn webserver(job_control_tx: UnboundedSender<JobControllerReq>, port: 
         .route("/start_actor", post(start_actor))
         .route("/actor_added", post(actor_added))
         .route("/register_lib", post(register_lib))
+        .route("/stop_actor", post(stop_actor))
         .route("/stop_all_actors", post(stop_all_actors))
+        .route("/set_duplication", post(set_duplication))
+        .route("/set_msg_loss", post(set_msg_loss))
+        .route("/set_msg_delay", post(set_msg_delay))
+        .route("/unset_msg_duplication", post(unset_msg_duplication))
+        .route("/unset_msg_loss", post(unset_msg_loss))
+        .route("/unset_msg_delay", post(unset_msg_delay))
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)       // allow all origins

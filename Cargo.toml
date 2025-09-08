@@ -7,6 +7,7 @@ members = [
     "generic_nctrl",
     "generic_jctrl",
     "macros",
+    "examples/paxos",
     "examples/ping_pong",
     "examples/read_write_server", "examples/paxos",
 ]
@@ -17,7 +18,7 @@ exclude = [
 resolver = "2"
 
 [workspace.package]
-rust-version = "1.86"
+rust-version = "1.89"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 authors = ["Satyam Jay"]

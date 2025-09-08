@@ -24,7 +24,11 @@ impl OpLibrary {
     }
 
     pub(crate) fn get_lib(&self, lib_name: &str) -> &Library {
-        &self.container.get(lib_name).unwrap().0
+        &self
+            .container
+            .get(lib_name)
+            .unwrap_or_else(|| panic!("Library {lib_name} not found"))
+            .0
     }
 
     pub(crate) fn num_libs(&self) -> usize {

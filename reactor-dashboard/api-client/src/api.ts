@@ -26,6 +26,100 @@ import { BASE_PATH, COLLECTION_FORMATS, BaseAPI, RequiredError, operationServerM
 /**
  * 
  * @export
+ * @interface DisableMsgDelayRequest
+ */
+export interface DisableMsgDelayRequest {
+    /**
+     * 
+     * @type {string}
+     * @memberof DisableMsgDelayRequest
+     */
+    'actor_name': string;
+    /**
+     * 
+     * @type {Array<string>}
+     * @memberof DisableMsgDelayRequest
+     */
+    'senders': Array<string>;
+}
+/**
+ * 
+ * @export
+ * @interface MsgDelayRequest
+ */
+export interface MsgDelayRequest {
+    /**
+     * 
+     * @type {string}
+     * @memberof MsgDelayRequest
+     */
+    'actor_name': string;
+    /**
+     * 
+     * @type {number}
+     * @memberof MsgDelayRequest
+     */
+    'delay_range_end': number;
+    /**
+     * 
+     * @type {number}
+     * @memberof MsgDelayRequest
+     */
+    'delay_range_start': number;
+    /**
+     * 
+     * @type {Array<string>}
+     * @memberof MsgDelayRequest
+     */
+    'senders': Array<string>;
+}
+/**
+ * 
+ * @export
+ * @interface MsgDuplicationRequest
+ */
+export interface MsgDuplicationRequest {
+    /**
+     * 
+     * @type {string}
+     * @memberof MsgDuplicationRequest
+     */
+    'actor_name': string;
+    /**
+     * 
+     * @type {number}
+     * @memberof MsgDuplicationRequest
+     */
+    'factor': number;
+    /**
+     * 
+     * @type {number}
+     * @memberof MsgDuplicationRequest
+     */
+    'probability': number;
+}
+/**
+ * 
+ * @export
+ * @interface MsgLossRequest
+ */
+export interface MsgLossRequest {
+    /**
+     * 
+     * @type {string}
+     * @memberof MsgLossRequest
+     */
+    'actor_name': string;
+    /**
+     * 
+     * @type {number}
+     * @memberof MsgLossRequest
+     */
+    'probability': number;
+}
+/**
+ * 
+ * @export
  * @interface RegistrationArgs
  */
 export interface RegistrationArgs {
@@ -225,6 +319,111 @@ export const DefaultApiAxiosParamCreator = function (configuration?: Configurati
         },
         /**
          * 
+         * @param {MsgDuplicationRequest} msgDuplicationRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        setDuplication: async (msgDuplicationRequest: MsgDuplicationRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'msgDuplicationRequest' is not null or undefined
+            assertParamExists('setDuplication', 'msgDuplicationRequest', msgDuplicationRequest)
+            const localVarPath = `/set_duplication`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(msgDuplicationRequest, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @param {MsgDelayRequest} msgDelayRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        setMsgDelay: async (msgDelayRequest: MsgDelayRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'msgDelayRequest' is not null or undefined
+            assertParamExists('setMsgDelay', 'msgDelayRequest', msgDelayRequest)
+            const localVarPath = `/set_msg_delay`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(msgDelayRequest, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @param {MsgLossRequest} msgLossRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        setMsgLoss: async (msgLossRequest: MsgLossRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'msgLossRequest' is not null or undefined
+            assertParamExists('setMsgLoss', 'msgLossRequest', msgLossRequest)
+            const localVarPath = `/set_msg_loss`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(msgLossRequest, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
          * @param {SpawnArgs} spawnArgs Actor arguments as arbitrary JSON
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
@@ -260,6 +459,41 @@ export const DefaultApiAxiosParamCreator = function (configuration?: Configurati
         },
         /**
          * 
+         * @param {string} body 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        stopActor: async (body: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'body' is not null or undefined
+            assertParamExists('stopActor', 'body', body)
+            const localVarPath = `/stop_actor`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            localVarHeaderParameter['Content-Type'] = 'text/plain';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(body, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
@@ -281,6 +515,111 @@ export const DefaultApiAxiosParamCreator = function (configuration?: Configurati
             setSearchParams(localVarUrlObj, localVarQueryParameter);
             let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
             localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @param {DisableMsgDelayRequest} disableMsgDelayRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        unsetMsgDelay: async (disableMsgDelayRequest: DisableMsgDelayRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'disableMsgDelayRequest' is not null or undefined
+            assertParamExists('unsetMsgDelay', 'disableMsgDelayRequest', disableMsgDelayRequest)
+            const localVarPath = `/unset_msg_delay`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(disableMsgDelayRequest, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @param {string} body 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        unsetMsgDuplication: async (body: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'body' is not null or undefined
+            assertParamExists('unsetMsgDuplication', 'body', body)
+            const localVarPath = `/unset_msg_duplication`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            localVarHeaderParameter['Content-Type'] = 'text/plain';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(body, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @param {string} body 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        unsetMsgLoss: async (body: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'body' is not null or undefined
+            assertParamExists('unsetMsgLoss', 'body', body)
+            const localVarPath = `/unset_msg_loss`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            localVarHeaderParameter['Content-Type'] = 'text/plain';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(body, localVarRequestOptions, configuration)
 
             return {
                 url: toPathString(localVarUrlObj),
@@ -334,6 +673,42 @@ export const DefaultApiFp = function(configuration?: Configuration) {
         },
         /**
          * 
+         * @param {MsgDuplicationRequest} msgDuplicationRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async setDuplication(msgDuplicationRequest: MsgDuplicationRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.setDuplication(msgDuplicationRequest, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['DefaultApi.setDuplication']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @param {MsgDelayRequest} msgDelayRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async setMsgDelay(msgDelayRequest: MsgDelayRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.setMsgDelay(msgDelayRequest, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['DefaultApi.setMsgDelay']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @param {MsgLossRequest} msgLossRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async setMsgLoss(msgLossRequest: MsgLossRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.setMsgLoss(msgLossRequest, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['DefaultApi.setMsgLoss']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
          * @param {SpawnArgs} spawnArgs Actor arguments as arbitrary JSON
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
@@ -346,6 +721,18 @@ export const DefaultApiFp = function(configuration?: Configuration) {
         },
         /**
          * 
+         * @param {string} body 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async stopActor(body: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.stopActor(body, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['DefaultApi.stopActor']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
@@ -353,6 +740,42 @@ export const DefaultApiFp = function(configuration?: Configuration) {
             const localVarAxiosArgs = await localVarAxiosParamCreator.stopAllActors(options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['DefaultApi.stopAllActors']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @param {DisableMsgDelayRequest} disableMsgDelayRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async unsetMsgDelay(disableMsgDelayRequest: DisableMsgDelayRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.unsetMsgDelay(disableMsgDelayRequest, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['DefaultApi.unsetMsgDelay']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @param {string} body 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async unsetMsgDuplication(body: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.unsetMsgDuplication(body, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['DefaultApi.unsetMsgDuplication']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @param {string} body 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async unsetMsgLoss(body: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.unsetMsgLoss(body, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['DefaultApi.unsetMsgLoss']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
     }
@@ -393,6 +816,33 @@ export const DefaultApiFactory = function (configuration?: Configuration, basePa
         },
         /**
          * 
+         * @param {MsgDuplicationRequest} msgDuplicationRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        setDuplication(msgDuplicationRequest: MsgDuplicationRequest, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+            return localVarFp.setDuplication(msgDuplicationRequest, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @param {MsgDelayRequest} msgDelayRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        setMsgDelay(msgDelayRequest: MsgDelayRequest, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+            return localVarFp.setMsgDelay(msgDelayRequest, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @param {MsgLossRequest} msgLossRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        setMsgLoss(msgLossRequest: MsgLossRequest, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+            return localVarFp.setMsgLoss(msgLossRequest, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
          * @param {SpawnArgs} spawnArgs Actor arguments as arbitrary JSON
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
@@ -402,11 +852,47 @@ export const DefaultApiFactory = function (configuration?: Configuration, basePa
         },
         /**
          * 
+         * @param {string} body 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        stopActor(body: string, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+            return localVarFp.stopActor(body, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
         stopAllActors(options?: RawAxiosRequestConfig): AxiosPromise<void> {
             return localVarFp.stopAllActors(options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @param {DisableMsgDelayRequest} disableMsgDelayRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        unsetMsgDelay(disableMsgDelayRequest: DisableMsgDelayRequest, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+            return localVarFp.unsetMsgDelay(disableMsgDelayRequest, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @param {string} body 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        unsetMsgDuplication(body: string, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+            return localVarFp.unsetMsgDuplication(body, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @param {string} body 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        unsetMsgLoss(body: string, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+            return localVarFp.unsetMsgLoss(body, options).then((request) => request(axios, basePath));
         },
     };
 };
@@ -452,6 +938,39 @@ export class DefaultApi extends BaseAPI {
 
     /**
      * 
+     * @param {MsgDuplicationRequest} msgDuplicationRequest 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof DefaultApi
+     */
+    public setDuplication(msgDuplicationRequest: MsgDuplicationRequest, options?: RawAxiosRequestConfig) {
+        return DefaultApiFp(this.configuration).setDuplication(msgDuplicationRequest, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @param {MsgDelayRequest} msgDelayRequest 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof DefaultApi
+     */
+    public setMsgDelay(msgDelayRequest: MsgDelayRequest, options?: RawAxiosRequestConfig) {
+        return DefaultApiFp(this.configuration).setMsgDelay(msgDelayRequest, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @param {MsgLossRequest} msgLossRequest 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof DefaultApi
+     */
+    public setMsgLoss(msgLossRequest: MsgLossRequest, options?: RawAxiosRequestConfig) {
+        return DefaultApiFp(this.configuration).setMsgLoss(msgLossRequest, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
      * @param {SpawnArgs} spawnArgs Actor arguments as arbitrary JSON
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
@@ -463,12 +982,56 @@ export class DefaultApi extends BaseAPI {
 
     /**
      * 
+     * @param {string} body 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof DefaultApi
+     */
+    public stopActor(body: string, options?: RawAxiosRequestConfig) {
+        return DefaultApiFp(this.configuration).stopActor(body, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      * @memberof DefaultApi
      */
     public stopAllActors(options?: RawAxiosRequestConfig) {
         return DefaultApiFp(this.configuration).stopAllActors(options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @param {DisableMsgDelayRequest} disableMsgDelayRequest 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof DefaultApi
+     */
+    public unsetMsgDelay(disableMsgDelayRequest: DisableMsgDelayRequest, options?: RawAxiosRequestConfig) {
+        return DefaultApiFp(this.configuration).unsetMsgDelay(disableMsgDelayRequest, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @param {string} body 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof DefaultApi
+     */
+    public unsetMsgDuplication(body: string, options?: RawAxiosRequestConfig) {
+        return DefaultApiFp(this.configuration).unsetMsgDuplication(body, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @param {string} body 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof DefaultApi
+     */
+    public unsetMsgLoss(body: string, options?: RawAxiosRequestConfig) {
+        return DefaultApiFp(this.configuration).unsetMsgLoss(body, options).then((request) => request(this.axios, this.basePath));
     }
 }
 

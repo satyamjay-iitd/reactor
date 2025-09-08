@@ -27,6 +27,22 @@ pub enum ControlInst {
     StartLocalRecv(LocalChannelRx),
     StartTcpRecv(u16),
     Stop,
+    SetMsgLoss {
+        probability: f32,
+    },
+    SetMsgDuplication {
+        factor: u32,
+        probability: f32,
+    },
+    SetMsgDelay {
+        delay_range_ms: (u64, u64),
+        senders: Vec<String>,
+    },
+    UnsetMsgLoss,
+    UnsetMsgDuplication,
+    UnsetMsgDelay {
+        senders: Vec<String>,
+    },
 }
 
 #[derive(Debug)]

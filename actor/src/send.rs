@@ -148,10 +148,10 @@ async fn sender_task<M, E>(
         send_remote_handshake(&mut tx, my_addr, decoder_name, ask_receiver_to_adapt).await;
         let mut framed_writer = FramedWrite::new(tx, encoder);
         loop {
-            if let Some(msg) = rx.recv().await {
-                if framed_writer.send(msg).await.is_err() {
-                    break;
-                }
+            if let Some(msg) = rx.recv().await
+                && framed_writer.send(msg).await.is_err()
+            {
+                break;
             }
         }
         log::info!("[ACTOR] SubTx Ended");
@@ -167,10 +167,10 @@ async fn sender_task<M, E>(
         let decoder_name = std::any::type_name::<M>().to_string();
         send_local_handshake(&tx, my_addr, decoder_name, ask_receiver_to_adapt).await;
         loop {
-            if let Some(msg) = rx.recv().await {
-                if tx.send(Box::new(msg)).await.is_err() {
-                    break;
-                }
+            if let Some(msg) = rx.recv().await
+                && tx.send(Box::new(msg)).await.is_err()
+            {
+                break;
             }
         }
         log::info!("[ACTOR] SubTx Ended");
@@ -211,7 +211,8 @@ async fn sender_task<M, E>(
             Connection::CouldntResolve => {
                 log::warn!("[ACTOR] Failed to resolve {}", send_addr);
                 tokio::time::sleep(Duration::from_millis(100)).await;
-                continue;
+                // continue;
+                break;
             }
         };
     }

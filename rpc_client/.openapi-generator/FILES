@@ -3,6 +3,10 @@
 Cargo.toml
 README.md
 docs/DefaultApi.md
+docs/DisableMsgDelayRequest.md
+docs/MsgDelayRequest.md
+docs/MsgDuplicationRequest.md
+docs/MsgLossRequest.md
 docs/RegistrationArgs.md
 docs/RemoteActorInfo.md
 docs/SpawnArgs.md
@@ -12,7 +16,11 @@ src/apis/configuration.rs
 src/apis/default_api.rs
 src/apis/mod.rs
 src/lib.rs
+src/models/disable_msg_delay_request.rs
 src/models/mod.rs
+src/models/msg_delay_request.rs
+src/models/msg_duplication_request.rs
+src/models/msg_loss_request.rs
 src/models/registration_args.rs
 src/models/remote_actor_info.rs
 src/models/spawn_args.rs

@@ -29,12 +29,23 @@ Class | Method | HTTP request | Description
 *DefaultApi* | [**actor_added**](docs/DefaultApi.md#actor_added) | **POST** /actor_added | 
 *DefaultApi* | [**get_status**](docs/DefaultApi.md#get_status) | **GET** /status | 
 *DefaultApi* | [**register_lib**](docs/DefaultApi.md#register_lib) | **POST** /register_lib | 
+*DefaultApi* | [**set_duplication**](docs/DefaultApi.md#set_duplication) | **POST** /set_duplication | 
+*DefaultApi* | [**set_msg_delay**](docs/DefaultApi.md#set_msg_delay) | **POST** /set_msg_delay | 
+*DefaultApi* | [**set_msg_loss**](docs/DefaultApi.md#set_msg_loss) | **POST** /set_msg_loss | 
 *DefaultApi* | [**start_actor**](docs/DefaultApi.md#start_actor) | **POST** /start_actor | 
+*DefaultApi* | [**stop_actor**](docs/DefaultApi.md#stop_actor) | **POST** /stop_actor | 
 *DefaultApi* | [**stop_all_actors**](docs/DefaultApi.md#stop_all_actors) | **POST** /stop_all_actors | 
+*DefaultApi* | [**unset_msg_delay**](docs/DefaultApi.md#unset_msg_delay) | **POST** /unset_msg_delay | 
+*DefaultApi* | [**unset_msg_duplication**](docs/DefaultApi.md#unset_msg_duplication) | **POST** /unset_msg_duplication | 
+*DefaultApi* | [**unset_msg_loss**](docs/DefaultApi.md#unset_msg_loss) | **POST** /unset_msg_loss | 
 
 
 ## Documentation For Models
 
+ - [DisableMsgDelayRequest](docs/DisableMsgDelayRequest.md)
+ - [MsgDelayRequest](docs/MsgDelayRequest.md)
+ - [MsgDuplicationRequest](docs/MsgDuplicationRequest.md)
+ - [MsgLossRequest](docs/MsgLossRequest.md)
  - [RegistrationArgs](docs/RegistrationArgs.md)
  - [RemoteActorInfo](docs/RemoteActorInfo.md)
  - [SpawnArgs](docs/SpawnArgs.md)

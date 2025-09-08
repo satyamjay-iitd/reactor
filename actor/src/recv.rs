@@ -1,20 +1,25 @@
+use core::panic;
 use std::{
+    collections::HashMap,
     net::{Ipv4Addr, SocketAddr},
     sync::Arc,
+    time::Duration,
 };
 
 use futures::StreamExt as _;
+use rand::{Rng, SeedableRng as _, rngs::SmallRng};
 use socket2::{Domain, Socket, Type};
 use tokio::{
     io::{AsyncRead, AsyncReadExt as _},
     net::{TcpListener, tcp::OwnedReadHalf},
-    sync::{Mutex, mpsc},
+    sync::{Mutex, mpsc, watch},
     task::JoinSet,
 };
 use tokio_util::{
     codec::{Decoder, FramedRead},
     sync::CancellationToken,
 };
+use tracing::{error, warn};
 
 use crate::{
     ActorRecv, ChannelAction, Msg, R2PMsg, SubDecoderStore,
@@ -38,6 +43,8 @@ impl<M> Decoder for BoxedDecoder<M> {
         self.0.decode(src)
     }
 }
+
+type ThrottleSignalStore = Arc<Mutex<HashMap<String, watch::Sender<(u64, u64)>>>>;
 
 fn any_to_m<M: 'static>(msg: Box<dyn std::any::Any>) -> M {
     *(msg.downcast::<M>().unwrap())
@@ -97,6 +104,7 @@ where
     let mut tcp_server_set: JoinSet<Result<(), ActorError>> = JoinSet::new();
     let mut local_recv_set = JoinSet::new();
     let channel_state = reciever.map(|reciever| Arc::new(Mutex::new(reciever)));
+    let throttle_signals: ThrottleSignalStore = Arc::new(Mutex::new(HashMap::new()));
 
     while let Some(msg) = controller_rx.recv().await {
         match msg {
@@ -108,11 +116,13 @@ where
                     sub_decoders,
                     p_tx.clone(),
                     channel_state.clone(),
+                    throttle_signals.clone(),
                 ));
             }
             ControlInst::StartLocalRecv(mut local_rx) => {
-                let addr = local_rx.recv().await.unwrap();
-                let (addr, msg_type) = *(addr.downcast::<(String, Option<String>)>().unwrap());
+                let remote_addr = local_rx.recv().await.unwrap();
+                let (remote_addr, msg_type) =
+                    *(remote_addr.downcast::<(String, Option<String>)>().unwrap());
                 let msg_transform = match (sub_decoders, msg_type) {
                     (Some(sub_decoders), Some(msg_type)) => {
                         sub_decoders(&msg_type).unwrap().any_to_m
@@ -120,13 +130,81 @@ where
                     _ => any_to_m,
                 };
 
+                let throttle_rx =
+                    if let Some(throttle_tx) = throttle_signals.lock().await.get(&remote_addr) {
+                        let rx = throttle_tx.subscribe();
+                        // Resend value to trigger notification on the new rx;
+                        let value = *throttle_tx.borrow();
+                        throttle_tx.send(value).unwrap();
+                        rx
+                    } else {
+                        let (throttle_tx, throttle_rx) = watch::channel((0, 0));
+                        throttle_signals
+                            .lock()
+                            .await
+                            .insert(remote_addr.clone(), throttle_tx);
+                        throttle_rx
+                    };
                 local_recv_set.spawn(local_parent_recv_subtask(
-                    addr,
+                    remote_addr,
                     p_tx.clone(),
                     channel_state.clone(),
                     local_rx,
                     msg_transform,
+                    throttle_rx,
                 ));
+            }
+            ControlInst::SetMsgDuplication {
+                factor,
+                probability,
+            } => {
+                p_tx.send(R2PMsg::SetMsgDuplication {
+                    factor,
+                    probability,
+                })
+                .await
+                .map_err(|_| ActorError::R2PErr)?;
+            }
+            ControlInst::SetMsgLoss { probability } => {
+                p_tx.send(R2PMsg::SetMsgLoss { probability })
+                    .await
+                    .map_err(|_| ActorError::R2PErr)?;
+            }
+            ControlInst::SetMsgDelay {
+                delay_range_ms,
+                senders,
+            } => {
+                for sender in senders {
+                    if let Some(throttle_tx) = throttle_signals.lock().await.get(&sender) {
+                        throttle_tx.send(delay_range_ms).unwrap();
+                    } else {
+                        let (throttle_tx, _throttle_rx) = watch::channel((0, 0));
+                        throttle_tx.send(delay_range_ms).unwrap();
+                        throttle_signals
+                            .lock()
+                            .await
+                            .insert(sender.clone(), throttle_tx);
+                    }
+                }
+            }
+            ControlInst::UnsetMsgLoss => {
+                p_tx.send(R2PMsg::UnsetMsgLoss)
+                    .await
+                    .map_err(|_| ActorError::R2PErr)?;
+            }
+            ControlInst::UnsetMsgDuplication => {
+                p_tx.send(R2PMsg::UnsetMsgDuplication)
+                    .await
+                    .map_err(|_| ActorError::R2PErr)?;
+            }
+            ControlInst::UnsetMsgDelay { senders } => {
+                for sender in senders {
+                    if let Some(throttle_signal) = throttle_signals.lock().await.get(&sender) {
+                        throttle_signal.send((0, 0)).unwrap();
+                    } else {
+                        error!("Sender {sender} not found");
+                    }
+                }
             }
             ControlInst::Stop => {
                 cancel_token.cancel();
@@ -150,6 +228,7 @@ async fn tcp_recv<D, M, AR>(
     sub_decoders: Option<SubDecoderStore<M>>,
     p_tx: ReactorChannelTx<R2PMsg<M>>,
     cstate: Option<Arc<Mutex<AR>>>,
+    throttle_signals: ThrottleSignalStore,
 ) -> Result<(), ActorError>
 where
     M: Msg,
@@ -193,22 +272,28 @@ where
                     (Some(sub_decoders), Some(msg_type)) => {
                         let decoder: Box<dyn tokio_util::codec::Decoder<Item = M, Error = std::io::Error> + Sync + Send> = (sub_decoders(&msg_type).unwrap().decoder_cons)();
                         let boxed_decoder = BoxedDecoder(decoder);
+                        let (throttle_tx, throttle_rx) = watch::channel((0,0));
+                        throttle_signals.lock().await.insert(remote_addr.clone(), throttle_tx);
                         remote_recv_set.spawn(remote_parent_recv_subtask(
                             remote_addr,
                             p_tx.clone(),
                             cstate.clone(),
                             FramedRead::new(rx, boxed_decoder),
+                            throttle_rx
                         ));
                     },
                     (None, Some(_)) => {
                         panic!("I dont know how to decode your messages");
                     }
                     _ => {
+                        let (throttle_tx, throttle_rx) = watch::channel((0,0));
+                        throttle_signals.lock().await.insert(remote_addr.clone(), throttle_tx);
                         remote_recv_set.spawn(remote_parent_recv_subtask(
                             remote_addr,
                             p_tx.clone(),
                             cstate.clone(),
                             FramedRead::new(rx, master_decoder.clone()),
+                            throttle_rx
                         ));
 
                     },
@@ -247,6 +332,7 @@ async fn remote_parent_recv_subtask<M, AR, D, RX>(
     row_q: ReactorChannelTx<R2PMsg<M>>,
     cstate: Option<Arc<Mutex<AR>>>,
     mut framed_reader: FramedRead<RX, D>,
+    mut throttle_signal: watch::Receiver<(u64, u64)>,
 ) where
     AR: ActorRecv<IMsg = M>,
     D: Decoder<Item = M>,
@@ -255,29 +341,44 @@ async fn remote_parent_recv_subtask<M, AR, D, RX>(
 {
     tracing::info!("[ACTOR] SubRx Started");
     let parent_addr = parent_addr.leak();
+    let mut throttle_range = (0, 0);
+    let mut rng = SmallRng::from_seed([0; 32]);
     loop {
-        if let Some(Ok(msg)) = framed_reader.next().await {
-            if let Some(cstate) = cstate.as_ref() {
-                let action = cstate.lock().await.after_recv(parent_addr, &msg).await;
-                match action {
-                    ChannelAction::PASS => {}
-                    ChannelAction::PANIC => {
-                        panic!()
+        tokio::select! {
+        _ = throttle_signal.changed() => {
+            throttle_range= *throttle_signal.borrow_and_update();
+        }
+        msg = framed_reader.next() =>{
+            if let Some(Ok(msg)) = msg {
+                if throttle_range != (0,0){
+                    let throttle_ms: u64 = rng.random_range(throttle_range.0..=throttle_range.1);
+                    warn!("Throttling messages from {parent_addr} for {throttle_ms}ms");
+                    tokio::time::sleep(Duration::from_millis(throttle_ms)).await;
+                }
+                if let Some(cstate) = cstate.as_ref() {
+                    let action = cstate.lock().await.after_recv(parent_addr, &msg).await;
+                    match action {
+                        ChannelAction::PASS => {}
+                        ChannelAction::PANIC => {
+                            panic!()
+                        }
+                        ChannelAction::DROP => {
+                            continue;
+                        }
+                        ChannelAction::SYNC(_) => todo!(),
+                        ChannelAction::CLOSE => {
+                            break;
+                        }
                     }
-                    ChannelAction::DROP => {
-                        continue;
-                    }
-                    ChannelAction::SYNC(_) => todo!(),
-                    ChannelAction::CLOSE => {
+                    if row_q.send(R2PMsg::Msg(msg, parent_addr)).await.is_err() {
                         break;
                     }
-                }
-                if row_q.send(R2PMsg::Msg(msg, parent_addr)).await.is_err() {
+                } else if row_q.send(R2PMsg::Msg(msg, parent_addr)).await.is_err() {
                     break;
                 }
-            } else if row_q.send(R2PMsg::Msg(msg, parent_addr)).await.is_err() {
-                break;
             }
+        }
+
         }
     }
     tracing::info!("[ACTOR] SubRx Ended");
@@ -289,38 +390,55 @@ async fn local_parent_recv_subtask<M, AR>(
     after_recv: Option<Arc<Mutex<AR>>>,
     mut local_rx: LocalChannelRx,
     msg_transform: fn(Box<dyn std::any::Any>) -> M,
+    mut throttle_signal: watch::Receiver<(u64, u64)>,
 ) where
     M: Msg + 'static,
     AR: ActorRecv<IMsg = M>,
 {
     tracing::info!("[ACTOR] SubRx Started");
     let parent_addr = parent_addr.leak();
+    let mut throttle_range = (0, 0);
+    let mut rng = SmallRng::from_seed([0; 32]);
+
     loop {
-        if let Some(msg) = local_rx.recv().await {
-            let msg = msg_transform(msg);
-            // let msg = msg.downcast::<M>().unwrap();
-            // let msg: M = msg.into();
-            if let Some(cstate) = after_recv.as_ref() {
-                let action = cstate.lock().await.after_recv(parent_addr, &msg).await;
-                match action {
-                    ChannelAction::PASS => {}
-                    ChannelAction::PANIC => {
-                        panic!()
+        tokio::select! {
+            _ = throttle_signal.changed() => {
+                throttle_range = *throttle_signal.borrow_and_update();
+            }
+            msg = local_rx.recv() => {
+                 if let Some(msg) = msg {
+                    if throttle_range != (0,0){
+                        let throttle_ms: u64 = rng.random_range(throttle_range.0..=throttle_range.1);
+                        warn!("Throttling messages from {parent_addr} for {throttle_ms}ms");
+                        tokio::time::sleep(Duration::from_millis(throttle_ms)).await;
                     }
-                    ChannelAction::DROP => {
-                        continue;
-                    }
-                    ChannelAction::SYNC(_) => todo!(),
-                    ChannelAction::CLOSE => {
+                    let msg = msg_transform(msg);
+                    // let msg = msg.downcast::<M>().unwrap();
+                    // let msg: M = msg.into();
+                    if let Some(cstate) = after_recv.as_ref() {
+                        let action = cstate.lock().await.after_recv(parent_addr, &msg).await;
+                        match action {
+                            ChannelAction::PASS => {}
+                            ChannelAction::PANIC => {
+                                panic!()
+                            }
+                            ChannelAction::DROP => {
+                                continue;
+                            }
+                            ChannelAction::SYNC(_) => todo!(),
+                            ChannelAction::CLOSE => {
+                                break;
+                            }
+                        }
+                        if row_q.send(R2PMsg::Msg(msg, parent_addr)).await.is_err() {
+                            break;
+                        }
+                    } else if row_q.send(R2PMsg::Msg(msg, parent_addr)).await.is_err() {
                         break;
                     }
                 }
-                if row_q.send(R2PMsg::Msg(msg, parent_addr)).await.is_err() {
-                    break;
-                }
-            } else if row_q.send(R2PMsg::Msg(msg, parent_addr)).await.is_err() {
-                break;
             }
+
         }
     }
     tracing::info!("[ACTOR] SubRx Ended");
