@@ -61,6 +61,7 @@ export class ManualPlacementManager implements PlacementManager {
   }
 
   place(opInfo: LogicalOp): PhysicalOp[] {
+    console.log(this.map);
     const ops = this.map.get(opInfo.name);
     if (!ops) {
       throw new Error(`No physical ops found for logical op: ${opInfo.name}`);
@@ -91,6 +92,15 @@ export class ManualPlacementManager implements PlacementManager {
 
   get_actors(): Set<string> {
     return this.actors;  
+  }
+
+  get_ops(opToLib: Record<string, string>): Set<LogicalOp> {
+    const ops = Object.entries(opToLib).map(([name, libName]) => ({
+      name,
+      libName,
+    }));
+
+    return new Set(ops);
   }
 
 }

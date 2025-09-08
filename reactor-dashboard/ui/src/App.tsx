@@ -35,7 +35,6 @@ function App() {
 
         try {
           const res = await api.getStatus();
-          console.log(res.data.loaded_libs);
 
           const newData: NodeData = {
             actors: Array.isArray(res.data.actors) ? res.data.actors : [],

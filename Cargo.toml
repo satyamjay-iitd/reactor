@@ -8,7 +8,7 @@ members = [
     "generic_jctrl",
     "macros",
     "examples/ping_pong",
-    "examples/read_write_server",
+    "examples/read_write_server", "examples/paxos",
 ]
 
 exclude = [

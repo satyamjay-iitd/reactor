@@ -8,15 +8,17 @@ edition = "2024"
 env_logger = "0.11.8"
 tokio = { version = "1", features = ["full", "tracing"] }
 reactor-node = { path = "../node" }
-reactor-inst = { path = "../instrument" }
 clap = { version = "4", features = ["derive"] }
 serde_json = "1.0.140"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+reactor-inst = { path = "../instrument", optional=true }
+log.workspace = true
 
 
 [features]
 default = []
 swagger = ["reactor-node/swagger"]
+jaeger = ["reactor-inst"]
 
 
 

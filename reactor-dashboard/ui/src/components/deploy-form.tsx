@@ -146,6 +146,19 @@ function OpToNodes(nodes: Node[]): Record<string, string[]> {
   return opToNodes
 }
 
+function OpToLib(nodes: Node[]): Record<string, string> {
+  const opToLib: Record<string, string> = {}
+
+  for (const node of nodes) {
+    for (const [lib, ops] of Object.entries(node.data.loaded_libs)) {
+      for (const op of ops){
+        opToLib[op] = lib;
+      }
+    }
+  }
+  return opToLib;
+}
+
 export default function JobRunner({ nodes }: DialogDemoProps) {
   const [selectedOp, setSelectedOp] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
@@ -157,8 +170,14 @@ export default function JobRunner({ nodes }: DialogDemoProps) {
   const [isJsonValid, setIsJsonValid] = useState<boolean>(true);
 
   const opToNodes = OpToNodes(nodes);
+  const opToLib = OpToLib(nodes);
   const allOps = Object.keys(opToNodes);
-  const nodesForOp = selectedOp ? opToNodes[selectedOp] ?? [] : []
+  const nodesForOp = selectedOp ? opToNodes[selectedOp] ?? [] : [];
+
+  let jc = new JobController(placement);
+  for (const node of nodes){
+    jc.registerNode(node.hostname, node.hostname, node.port);
+  }
 
   const handlePlace = () => {
     if (!selectedOp) {
@@ -204,16 +223,16 @@ export default function JobRunner({ nodes }: DialogDemoProps) {
     setPlacement(newPlacement);
   };
 
-  const handleDeploy = () =>{
-    let jc = new JobController(placement);
-    jc.startJob([...placement.get_actors()]);
+  const handleDeploy = () => {
+    jc.startJob([...placement.get_ops(opToLib)]);
+    toast.success("Job Deployed sucessfully");
   };
 
   return (
     <Sheet>
       <Toaster position="top-center" richColors/>
       <SheetTrigger asChild>
-        <Button onClick={handleDeploy}>Deploy Job</Button>
+        <Button>Deploy Job</Button>
       </SheetTrigger>
       <SheetContent className="w-[1000px] sm:w-[1000px]">
         <SheetHeader>
@@ -295,7 +314,7 @@ export default function JobRunner({ nodes }: DialogDemoProps) {
         <SheetFooter>
           <Button variant="secondary">Load</Button>
           <Button variant="secondary">Save changes</Button>
-          <Button type="submit">Deploy</Button>
+          <Button type="submit" onClick={handleDeploy}>Deploy</Button>
           <SheetClose asChild>
             <Button variant="outline">Close</Button>
           </SheetClose>

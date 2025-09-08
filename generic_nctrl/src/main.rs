@@ -19,6 +19,17 @@ pub struct Cli {
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
+
+    #[cfg(feature = "jaeger")]
     let _gurad = reactor_inst::init_tracing();
+
+    #[cfg(not(feature = "jaeger"))]
+    {
+        use env_logger::Builder;
+        use log::LevelFilter;
+
+        Builder::new().filter_level(LevelFilter::Info).init();
+    }
+
     node_controller(cli.port, cli.dir).await;
 }
