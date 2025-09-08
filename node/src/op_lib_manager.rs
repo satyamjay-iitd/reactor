@@ -27,7 +27,7 @@ impl OpLibrary {
         &self
             .container
             .get(lib_name)
-            .expect(&format!("Library {lib_name} not found"))
+            .unwrap_or_else(|| panic!("Library {lib_name} not found"))
             .0
     }
 
