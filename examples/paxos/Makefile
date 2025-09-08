@@ -1,4 +1,4 @@
-.PHONY: install install_node install_jobc chaos kill_node node job clean
+.PHONY: install install_node install_jobc chaos kill_node node job clean build
 	
 REACTOR_GIT     ?= https://github.com/satyamjay-iitd/reactor.git
 REACTOR_BRANCH  ?= master
@@ -32,7 +32,7 @@ kill_node:
 	@echo "Killing process on port 3000 if any..."
 	@lsof -ti :3000 | xargs --no-run-if-empty kill
 
-node: kill_node install_node
+node: kill_node install_node build
 	reactor_nctrl --port 3000 ../../target/release
 	
 job: install_jobc
