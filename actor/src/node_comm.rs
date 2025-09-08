@@ -36,12 +36,12 @@ pub enum ControlInst {
     },
     SetMsgDelay {
         delay_range_ms: (u64, u64),
-        sender: String,
+        senders: Vec<String>,
     },
     UnsetMsgLoss,
     UnsetMsgDuplication,
     UnsetMsgDelay {
-        sender: String,
+        senders: Vec<String>,
     },
 }
 

@@ -74,14 +74,14 @@ pub struct MsgDelayRequest {
     pub actor_name: String,
     pub delay_range_start: u64,
     pub delay_range_end: u64,
-    pub sender: String,
+    pub senders: Vec<String>,
 }
 
 #[cfg_attr(feature = "swagger", derive(utoipa::ToSchema))]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DisableMsgDelayRequest {
     pub actor_name: String,
-    pub sender: String,
+    pub senders: Vec<String>,
 }
 
 #[cfg_attr(feature = "swagger", derive(ToSchema))]
@@ -334,7 +334,7 @@ async fn set_msg_delay(
         .tx
         .send(JobControllerReq::MsgDelay {
             actor_name: delay_request.actor_name,
-            sender: delay_request.sender,
+            senders: delay_request.senders,
             delay_range_ms: (
                 delay_request.delay_range_start,
                 delay_request.delay_range_end,
@@ -402,7 +402,7 @@ async fn unset_msg_delay(
         .tx
         .send(JobControllerReq::DisableMsgDelay {
             actor_name: disable_delay_request.actor_name,
-            sender: disable_delay_request.sender,
+            senders: disable_delay_request.senders,
         })
         .unwrap();
     (axum::http::StatusCode::OK, "Chaos Config Removed!")

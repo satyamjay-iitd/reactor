@@ -1,11 +1,14 @@
-use std::collections::HashMap;
+use std::thread;
+use std::time::Duration;
+
+use crate::SLEEP_MS;
+use crate::common::{AcceptorAddr, Ballot, PaxosMsg, Val};
 use log::info;
-use reactor_actor::{ActorAddr, BehaviourBuilder, RouteTo, RuntimeCtx};
 use reactor_actor::codec::BincodeCodec;
-use crate::common::{Ballot, PaxosMsg, Val, LeaderAddr, AcceptorAddr};
+use reactor_actor::{BehaviourBuilder, RouteTo, RuntimeCtx};
 
 struct Sender {
-    addr: &'static str
+    addr: &'static str,
 }
 
 impl reactor_actor::ActorSend for Sender {
@@ -40,11 +43,18 @@ impl reactor_actor::ActorProcess for Acceptor {
 
     fn process(&mut self, input: Self::IMsg) -> Vec<Self::OMsg> {
         info!("{} received {:?}", self.addr, input);
+        thread::sleep(Duration::from_millis(SLEEP_MS));
         match input {
             PaxosMsg::A1(leader, ballot) => {
                 if ballot > self.max_ballot {
                     self.max_ballot = ballot;
-                    return vec![PaxosMsg::B1(AcceptorAddr::from(self.addr), leader, ballot, self.last_ballot, self.last_value)];
+                    return vec![PaxosMsg::B1(
+                        AcceptorAddr::from(self.addr),
+                        leader,
+                        ballot,
+                        self.last_ballot,
+                        self.last_value,
+                    )];
                 }
                 info!("Ignoring A1 message. My max_ballot {}", self.max_ballot);
                 vec![]
@@ -54,12 +64,19 @@ impl reactor_actor::ActorProcess for Acceptor {
                     self.max_ballot = ballot;
                     self.last_ballot = Some(ballot);
                     self.last_value = Some(value);
-                    return vec![PaxosMsg::B2(AcceptorAddr::from(self.addr), leader, ballot, value)];
+                    return vec![PaxosMsg::B2(
+                        AcceptorAddr::from(self.addr),
+                        leader,
+                        ballot,
+                        value,
+                    )];
                 }
                 info!("Ignoring A2 message. My max_ballot {}", self.max_ballot);
                 vec![]
             }
-            _ => {panic!("Unexpected message")}
+            _ => {
+                panic!("Unexpected message")
+            }
         }
     }
 }
@@ -72,4 +89,3 @@ pub async fn acceptor(ctx: RuntimeCtx) {
         .await
         .unwrap();
 }
-

@@ -81,7 +81,7 @@ pub(crate) enum JobControllerReq {
     MsgDelay {
         actor_name: ActorAddr,
         delay_range_ms: (u64, u64),
-        sender: String,
+        senders: Vec<String>,
     },
     DisableMsgLoss {
         actor_name: ActorAddr,
@@ -91,7 +91,7 @@ pub(crate) enum JobControllerReq {
     },
     DisableMsgDelay {
         actor_name: ActorAddr,
-        sender: String,
+        senders: Vec<String>,
     },
 }
 
@@ -295,15 +295,15 @@ async fn handle_job_req(
         JobControllerReq::MsgDelay {
             actor_name,
             delay_range_ms,
-            sender,
+            senders,
         } => {
             if let Some(actor) = local_actors.get(&actor_name) {
-                info!(target: "setting msg delay", actor_name, sender);
+                info!(target: "setting msg delay", actor_name, ?senders);
                 actor
                     .handle
                     .send(ControlInst::SetMsgDelay {
                         delay_range_ms,
-                        sender,
+                        senders,
                     })
                     .await
                     .unwrap();
@@ -325,12 +325,15 @@ async fn handle_job_req(
                     .unwrap();
             }
         }
-        JobControllerReq::DisableMsgDelay { actor_name, sender } => {
+        JobControllerReq::DisableMsgDelay {
+            actor_name,
+            senders,
+        } => {
             if let Some(actor) = local_actors.get(&actor_name) {
                 info!(target: "disabling msg loss", actor_name);
                 actor
                     .handle
-                    .send(ControlInst::UnsetMsgDelay { sender })
+                    .send(ControlInst::UnsetMsgDelay { senders })
                     .await
                     .unwrap();
             }

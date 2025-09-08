@@ -59,14 +59,14 @@ impl ChaosOp {
             }
             ChaosOp::MsgDelay(MsgDelayOp {
                 delay_range_ms,
-                sender,
+                senders,
                 ..
             }) => {
                 let msg_delay_request = MsgDelayRequest {
                     actor_name,
                     delay_range_start: delay_range_ms.0 as i64,
                     delay_range_end: delay_range_ms.1 as i64,
-                    sender: sender.to_string(),
+                    senders: senders.clone(),
                 };
                 reactor_client::apis::default_api::set_msg_delay(client_config, msg_delay_request)
                     .await
@@ -102,10 +102,10 @@ impl ChaosOp {
                 .await
                 .unwrap();
             }
-            ChaosOp::MsgDelay(MsgDelayOp { sender, .. }) => {
+            ChaosOp::MsgDelay(MsgDelayOp { senders, .. }) => {
                 let disable_delay_request = DisableMsgDelayRequest {
                     actor_name,
-                    sender: sender.to_string(),
+                    senders: senders.clone(),
                 };
                 reactor_client::apis::default_api::unset_msg_delay(
                     client_config,

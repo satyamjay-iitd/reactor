@@ -20,19 +20,19 @@ TARGET_SO = ../../target/release/libpaxos_actor.so
 
 # Needed eventually for local testing
 install_node: ../../generic_nctrl
-	cargo install --path ../../generic_nctrl
+	cargo install --offline --path ../../generic_nctrl
 
 install_jobc: ../../generic_jctrl
-	cargo install --path ../../generic_jctrl
+	cargo install --offline --path ../../generic_jctrl
 
-$(TARGET_SO):
+build:
 	cargo build --release --features verbose
 
 kill_node:
 	@echo "Killing process on port 3000 if any..."
 	@lsof -ti :3000 | xargs --no-run-if-empty kill
 
-node: kill_node install_node $(TARGET_SO)
+node: kill_node install_node
 	reactor_nctrl --port 3000 ../../target/release
 	
 job: install_jobc

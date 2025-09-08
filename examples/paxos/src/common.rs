@@ -1,9 +1,11 @@
-use reactor_actor::ActorAddr;
 use bincode::{Decode, Encode};
+use derive_more::{Add, Display, From};
+use reactor_actor::ActorAddr;
 use reactor_macros::{DefaultPrio, Msg as DeriveMsg};
-use derive_more::{From, Display, Add};
 
-#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Copy, Display, From, Add)]
+#[derive(
+    Encode, Decode, Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Copy, Display, From, Add,
+)]
 pub struct Ballot(pub u8);
 impl Ballot {
     pub const MIN: Ballot = Ballot(0);
@@ -21,7 +23,13 @@ pub enum PaxosMsg {
     // Leader asks for votes in a ballot
     A2(LeaderAddr, Ballot, Val),
     // Acceptor responds for a ballot with the last value and ballot it voted for.
-    B1(AcceptorAddr, LeaderAddr, Ballot, Option<Ballot>, Option<Val>),
+    B1(
+        AcceptorAddr,
+        LeaderAddr,
+        Ballot,
+        Option<Ballot>,
+        Option<Val>,
+    ),
     // Acceptor votes for the value in a ballot
-    B2(AcceptorAddr, LeaderAddr, Ballot, Val)
+    B2(AcceptorAddr, LeaderAddr, Ballot, Val),
 }

@@ -105,7 +105,7 @@ pub struct MsgDelayOp {
     pub stop_ms: Option<u32>,
     // Both inclusive
     pub delay_range_ms: (u64, u64),
-    pub sender: String,
+    pub senders: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
@@ -128,6 +128,9 @@ impl ChaosMap {
         }
         if let Some(op) = &self.crash {
             v.push(ChaosOp::Crash(*op));
+        }
+        if let Some(op) = &self.msg_delay {
+            v.push(ChaosOp::MsgDelay(op.clone()));
         }
         v.into_iter()
     }

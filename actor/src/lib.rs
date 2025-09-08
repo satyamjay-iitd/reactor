@@ -525,16 +525,21 @@ where
                 loop {
                     match r2p_rx.recv() {
                         Some(R2PMsg::Msg(m, origin)) => {
-                            let chaos_out = chaos_manager.apply_chaos(m);
+                            // Dont apply chaos to messages comming from generator
+                            let chaos_out = if origin.is_empty() {
+                                vec![m]
+                            } else {
+                                chaos_manager.apply_chaos(m)
+                            };
                             let chaos_out_len = chaos_out.len();
                             if chaos_out_len > 1 {
-                                tracing::debug!(
+                                tracing::warn!(
                                     "[ACTOR][{}] Message Duplicated {} times",
                                     addr,
                                     chaos_out_len
                                 );
                             } else if chaos_out_len == 0 {
-                                tracing::debug!("[ACTOR][{}] Message Lost", addr);
+                                tracing::warn!("[ACTOR][{}] Message Lost", addr);
                             }
                             for msg in chaos_out {
                                 let processed = processor.process(msg);
