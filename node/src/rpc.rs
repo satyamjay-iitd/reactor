@@ -11,11 +11,12 @@ use axum::{
     extract::{MatchedPath, State},
     http::{HeaderMap, Request},
     response::{IntoResponse, Response},
-    routing::post,
+    routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::mpsc::UnboundedSender;
+use tower_http::cors::{Any, CorsLayer};
 use tower_http::{classify::ServerErrorsFailureClass, trace::TraceLayer};
 use tracing::{Span, info_span};
 #[cfg(feature = "swagger")]
@@ -407,6 +408,33 @@ async fn unset_msg_delay(
         .unwrap();
     (axum::http::StatusCode::OK, "Chaos Config Removed!")
 }
+#[derive(Serialize, ToSchema)]
+struct StatusResponse {
+    actors: Vec<String>,
+    loaded_libs: HashMap<String, Vec<String>>,
+}
+#[cfg_attr(feature="swagger", utoipa::path(
+    get,
+    path = "/status",
+    responses(
+        (status = 200, description = "Status of the node", body = StatusResponse)
+    )
+))]
+async fn get_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    state
+        .tx
+        .send(JobControllerReq::GetStatus { resp_tx: tx })
+        .unwrap();
+    let result = rx.await.unwrap();
+    (
+        axum::http::StatusCode::OK,
+        Json(StatusResponse {
+            actors: result.actors,
+            loaded_libs: result.loaded_libs,
+        }),
+    )
+}
 
 #[cfg(feature = "swagger")]
 #[derive(OpenApi)]
@@ -421,13 +449,15 @@ async fn unset_msg_delay(
     set_msg_delay,
     unset_msg_duplication,
     unset_msg_loss,
-    unset_msg_delay
+    unset_msg_delay,
+    get_status
 ))]
 struct ApiDoc;
 
 pub async fn webserver(job_control_tx: UnboundedSender<JobControllerReq>, port: u16) {
     let state = Arc::new(AppState { tx: job_control_tx });
     let app = Router::new()
+        .route("/status", get(get_status))
         .route("/start_actor", post(start_actor))
         .route("/actor_added", post(actor_added))
         .route("/register_lib", post(register_lib))
@@ -439,6 +469,12 @@ pub async fn webserver(job_control_tx: UnboundedSender<JobControllerReq>, port: 
         .route("/unset_msg_duplication", post(unset_msg_duplication))
         .route("/unset_msg_loss", post(unset_msg_loss))
         .route("/unset_msg_delay", post(unset_msg_delay))
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)       // allow all origins
+                .allow_methods(Any)      // allow all methods (GET, POST, etc.)
+                .allow_headers(Any),     // allow all headers
+        )
         .with_state(state)
         .layer(
             TraceLayer::new_for_http()

@@ -1,12 +1,26 @@
 use proc_macro::{self, TokenStream};
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
+use syn::ItemFn;
 use syn::{
     DeriveInput, Ident, Result, Token, Type, bracketed,
     parse::{Parse, ParseStream},
     parse_macro_input,
     punctuated::Punctuated,
 };
+
+#[proc_macro_attribute]
+pub fn actor(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(item as ItemFn);
+    let name = &input.sig.ident;
+    let fn_tokens = quote! {
+        #[unsafe(no_mangle)]
+        #input
+
+        reactor_actor::register_actor!(#name);
+    };
+    fn_tokens.into()
+}
 
 #[proc_macro_derive(DefaultPrio)]
 pub fn auto_default_priority(input: TokenStream) -> TokenStream {

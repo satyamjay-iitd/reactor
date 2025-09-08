@@ -1,0 +1,52 @@
+# Node modules
+node_modules/
+**/node_modules/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build outputs
+dist/
+build/
+out/
+
+# TypeScript
+*.tsbuildinfo
+
+# Vite / React / JSX caches
+.vite/
+.vscode/
+*.env.local
+*.env.*.local
+
+# Tailwind cache
+.tailwind-cache/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE / editor configs
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# npm package lock
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Optional: coverage reports
+coverage/
+*.lcov
+
+# Optional: storybook
+storybook-static/
+
+# Optional: temporary files
+*.tmp
+*.temp
+

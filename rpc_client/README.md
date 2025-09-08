@@ -27,6 +27,7 @@ All URIs are relative to *http://localhost*
 Class | Method | HTTP request | Description
 ------------ | ------------- | ------------- | -------------
 *DefaultApi* | [**actor_added**](docs/DefaultApi.md#actor_added) | **POST** /actor_added | 
+*DefaultApi* | [**get_status**](docs/DefaultApi.md#get_status) | **GET** /status | 
 *DefaultApi* | [**register_lib**](docs/DefaultApi.md#register_lib) | **POST** /register_lib | 
 *DefaultApi* | [**set_duplication**](docs/DefaultApi.md#set_duplication) | **POST** /set_duplication | 
 *DefaultApi* | [**set_msg_delay**](docs/DefaultApi.md#set_msg_delay) | **POST** /set_msg_delay | 
@@ -48,6 +49,7 @@ Class | Method | HTTP request | Description
  - [RegistrationArgs](docs/RegistrationArgs.md)
  - [RemoteActorInfo](docs/RemoteActorInfo.md)
  - [SpawnArgs](docs/SpawnArgs.md)
+ - [StatusResponse](docs/StatusResponse.md)
 
 
 To get access to the crate's generated documentation, use:

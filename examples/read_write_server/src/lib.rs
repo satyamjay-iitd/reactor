@@ -11,7 +11,7 @@ use writer::WriterIn;
 use crate::reader::{ReadAck, ReadOut, reader as reader_behaviour};
 use crate::server::server as server_behaviour;
 use crate::writer::{WriteAck, WriteOut, writer as writer_behaviour};
-use reactor_actor::RuntimeCtx;
+use reactor_actor::{RuntimeCtx, actor};
 use reactor_macros::msg_converter;
 use std::collections::HashMap;
 // //////////////////////////////////////////////////////////////////////////////
@@ -34,12 +34,12 @@ lazy_static::lazy_static! {
     static ref RUNTIME: tokio::runtime::Runtime = tokio::runtime::Runtime::new().unwrap();
 }
 
-#[unsafe(no_mangle)]
+#[actor]
 fn server(ctx: RuntimeCtx, _payload: HashMap<String, serde_json::Value>) {
     RUNTIME.spawn(server_behaviour(ctx, server_decoder));
 }
 
-#[unsafe(no_mangle)]
+#[actor]
 fn writer(ctx: RuntimeCtx, mut payload: HashMap<String, serde_json::Value>) {
     let server_addr = payload
         .remove("server_addr")
@@ -50,7 +50,7 @@ fn writer(ctx: RuntimeCtx, mut payload: HashMap<String, serde_json::Value>) {
     RUNTIME.spawn(writer_behaviour(ctx, server_addr, writer_decoder));
 }
 
-#[unsafe(no_mangle)]
+#[actor]
 fn reader(ctx: RuntimeCtx, mut payload: HashMap<String, serde_json::Value>) {
     let server_addr = payload
         .remove("server_addr")

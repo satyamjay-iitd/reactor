@@ -10,6 +10,7 @@ docs/MsgLossRequest.md
 docs/RegistrationArgs.md
 docs/RemoteActorInfo.md
 docs/SpawnArgs.md
+docs/StatusResponse.md
 git_push.sh
 src/apis/configuration.rs
 src/apis/default_api.rs
@@ -23,3 +24,4 @@ src/models/msg_loss_request.rs
 src/models/registration_args.rs
 src/models/remote_actor_info.rs
 src/models/spawn_args.rs
+src/models/status_response.rs
