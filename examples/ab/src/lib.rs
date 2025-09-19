@@ -1,12 +1,12 @@
-pub use reactor_actor::setup_shared_logger_ref;
 use bincode::{Decode, Encode};
+use log::info;
 use reactor_actor::codec::BincodeCodec;
+pub use reactor_actor::setup_shared_logger_ref;
 use reactor_actor::{BehaviourBuilder, RouteTo, RuntimeCtx, actor};
 use reactor_macros::{DefaultPrio, Msg as DeriveMsg};
 use std::collections::HashMap;
 use std::time::Duration;
 use std::vec;
-use log::info;
 
 type Data = char;
 type Bit = bool;
@@ -19,14 +19,16 @@ enum ABMsg {
 }
 
 struct GeneratorIter {
-    current: u8
+    current: u8,
 }
 impl GeneratorIter {
     const MIN: u8 = 0;
     const MAX: u8 = 25;
 
-    fn new () -> Self {
-        GeneratorIter { current: GeneratorIter::MIN }
+    fn new() -> Self {
+        GeneratorIter {
+            current: GeneratorIter::MIN,
+        }
     }
 }
 impl Iterator for GeneratorIter {
@@ -46,10 +48,10 @@ impl Iterator for GeneratorIter {
 
 struct Writer {
     data: Data,
-    bit: Bit
+    bit: Bit,
 }
 impl Writer {
-    fn new () -> Self {
+    fn new() -> Self {
         Writer {
             data: 'A',
             bit: true,
@@ -67,7 +69,7 @@ impl reactor_actor::ActorProcess for Writer {
                 let msg = ABMsg::Write(self.data, self.bit);
                 info!("Writer: Sent: {msg:?}");
                 vec![msg]
-            },
+            }
             ABMsg::Ack(bit) => {
                 info!("Writer: Recv: {input:?}");
                 if bit == self.bit {
@@ -76,20 +78,20 @@ impl reactor_actor::ActorProcess for Writer {
                 }
                 vec![]
             }
-            _ => panic!("Unexpected message at writer")
+            _ => panic!("Unexpected message at writer"),
         }
     }
 }
 
 struct Reader {
     data: Data,
-    bit: Bit
+    bit: Bit,
 }
 impl Reader {
-    fn new () -> Self {
+    fn new() -> Self {
         Reader {
             data: 'A',
-            bit: true
+            bit: true,
         }
     }
 }
@@ -104,14 +106,14 @@ impl reactor_actor::ActorProcess for Reader {
                 let msg = ABMsg::Ack(self.bit);
                 info!("Reader: Sent: {msg:?}");
                 vec![msg]
-            },
+            }
             ABMsg::Write(data, bit) => {
                 info!("Reader: Recv: {input:?}");
                 self.bit = bit;
                 self.data = data;
                 vec![]
             }
-            _ => panic!("Unexpected message at reader")
+            _ => panic!("Unexpected message at reader"),
         }
     }
 }
@@ -141,11 +143,11 @@ lazy_static::lazy_static! {
 #[actor]
 pub fn writer(ctx: RuntimeCtx, mut payload: HashMap<String, serde_json::Value>) {
     let other_addr: String = payload
-    .remove("other")
-    .unwrap()
-    .as_str()
-    .unwrap()
-    .to_string();
+        .remove("other")
+        .unwrap()
+        .as_str()
+        .unwrap()
+        .to_string();
     RUNTIME.spawn(async move {
         BehaviourBuilder::new(Writer::new(), BincodeCodec::default())
             .send(Sender::new(other_addr))
@@ -160,11 +162,11 @@ pub fn writer(ctx: RuntimeCtx, mut payload: HashMap<String, serde_json::Value>) 
 #[actor]
 pub fn reader(ctx: RuntimeCtx, mut payload: HashMap<String, serde_json::Value>) {
     let other_addr: String = payload
-    .remove("other")
-    .unwrap()
-    .as_str()
-    .unwrap()
-    .to_string();
+        .remove("other")
+        .unwrap()
+        .as_str()
+        .unwrap()
+        .to_string();
     std::thread::sleep(Duration::from_secs(2));
     RUNTIME.spawn(async move {
         BehaviourBuilder::new(Reader::new(), BincodeCodec::default())
