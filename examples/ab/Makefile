@@ -2,7 +2,7 @@ GENERIC_NCTRL = ../../generic_nctrl
 GENERIC_JCTRL = ../../generic_jctrl
 TARGET_SO = ../../target/debug/lib_ab_actor.so
 
-.PHONY: install install_node install_jobc chaos kill_node node job clean TARGET_SO
+.PHONY: install install_node install_jobc kill_node node job clean TARGET_SO
 	
 
 install_node: $(GENERIC_NCTRL)
@@ -10,9 +10,6 @@ install_node: $(GENERIC_NCTRL)
 
 install_jobc: $(GENERIC_JCTRL)
 	cargo install --debug --path $(GENERIC_JCTRL)
-
-chaos:
-	cargo build --features chaos
 
 kill_node:
 	@echo "Killing process on port 3000 if any..."

@@ -8,8 +8,37 @@ use std::collections::HashMap;
 use std::time::Duration;
 use std::vec;
 
-type Data = char;
-type Bit = bool;
+#[derive(Encode, Decode, Debug, Clone, Copy)]
+struct Data(char);
+#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq, Copy)]
+struct Bit(bool);
+
+impl Data {
+    const MIN: Data = Data('A');
+    const MAX: Data = Data('Z');
+}
+
+impl Iterator for Data {
+    type Item = Data;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.0 < Data::MAX.0 {
+            self.0 = ((self.0 as u8) + 1) as char;
+        } else {
+            self.0 = Data::MIN.0;
+        }
+        Some(self.clone())
+    }
+}
+
+impl Bit {
+    const INIT: Bit = Bit(true);
+
+    fn negate(&mut self) -> Bit {
+        self.0 = !self.0;
+        self.clone()
+    }
+}
 
 #[derive(Encode, Decode, Debug, Clone, DefaultPrio, DeriveMsg)]
 enum ABMsg {
@@ -18,31 +47,13 @@ enum ABMsg {
     GeneratorMsg,
 }
 
-struct GeneratorIter {
-    current: u8,
-}
-impl GeneratorIter {
-    const MIN: u8 = 0;
-    const MAX: u8 = 25;
-
-    fn new() -> Self {
-        GeneratorIter {
-            current: GeneratorIter::MIN,
-        }
-    }
-}
+struct GeneratorIter;
 impl Iterator for GeneratorIter {
     type Item = ABMsg;
 
     fn next(&mut self) -> Option<Self::Item> {
         std::thread::sleep(Duration::from_secs(4));
-
-        if self.current <= GeneratorIter::MAX {
-            self.current += 1;
-            Some(ABMsg::GeneratorMsg)
-        } else {
-            None
-        }
+        Some(ABMsg::GeneratorMsg)
     }
 }
 
@@ -53,8 +64,8 @@ struct Writer {
 impl Writer {
     fn new() -> Self {
         Writer {
-            data: 'A',
-            bit: true,
+            data: Data::MIN,
+            bit: Bit::INIT,
         }
     }
 }
@@ -73,8 +84,8 @@ impl reactor_actor::ActorProcess for Writer {
             ABMsg::Ack(bit) => {
                 info!("Writer: Recv: {input:?}");
                 if bit == self.bit {
-                    self.data = ((self.data as u8) + 1) as char;
-                    self.bit = !self.bit;
+                    self.data.next();
+                    self.bit.negate();
                 }
                 vec![]
             }
@@ -90,8 +101,8 @@ struct Reader {
 impl Reader {
     fn new() -> Self {
         Reader {
-            data: 'A',
-            bit: true,
+            data: Data::MIN,
+            bit: Bit::INIT,
         }
     }
 }
@@ -151,7 +162,7 @@ pub fn writer(ctx: RuntimeCtx, mut payload: HashMap<String, serde_json::Value>) 
     RUNTIME.spawn(async move {
         BehaviourBuilder::new(Writer::new(), BincodeCodec::default())
             .send(Sender::new(other_addr))
-            .generator(GeneratorIter::new())
+            .generator(GeneratorIter {})
             .build()
             .run(ctx)
             .await
@@ -171,7 +182,7 @@ pub fn reader(ctx: RuntimeCtx, mut payload: HashMap<String, serde_json::Value>) 
     RUNTIME.spawn(async move {
         BehaviourBuilder::new(Reader::new(), BincodeCodec::default())
             .send(Sender::new(other_addr))
-            .generator(GeneratorIter::new())
+            .generator(GeneratorIter {})
             .build()
             .run(ctx)
             .await
