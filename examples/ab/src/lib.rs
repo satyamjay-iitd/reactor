@@ -27,7 +27,7 @@ impl Iterator for Data {
         } else {
             self.0 = Data::MIN.0;
         }
-        Some(self.clone())
+        Some(*self)
     }
 }
 
@@ -36,7 +36,7 @@ impl Bit {
 
     fn negate(&mut self) -> Bit {
         self.0 = !self.0;
-        self.clone()
+        *self
     }
 }
 
