@@ -10,7 +10,7 @@ use tokio::{
 use tokio_util::codec::{Encoder, FramedWrite};
 
 use crate::{
-    ActorAddr, ActorSend, Msg, RouteTo,
+    ActorAddr, ActorSend, Msg, RouteTo, SendErrAction,
     node_comm::{Connection, ControlReq},
 };
 
@@ -22,10 +22,12 @@ pub(crate) async fn tx<M, E, BS>(
     mut p_rx: mpsc::UnboundedReceiver<(M, &'static str)>,
     controller_tx: mpsc::Sender<ControlReq>,
     codec: E,
+    on_send_failure: SendErrAction,
 ) where
     M: Msg,
     BS: ActorSend<OMsg = M>,
     E: Encoder<M> + 'static + Send + Clone,
+    E::Error: Send + 'static, // <-- add this line
 {
     let mut addr_to_buff: HashMap<ActorAddr, mpsc::UnboundedSender<M>> = HashMap::new();
     let mut sub_senders = JoinSet::new();
@@ -45,6 +47,7 @@ pub(crate) async fn tx<M, E, BS>(
                     &mut sub_senders,
                     origin,
                     m,
+                    on_send_failure,
                 ),
                 RouteTo::Single(send_to) => send_msg(
                     my_addr,
@@ -55,6 +58,7 @@ pub(crate) async fn tx<M, E, BS>(
                     &mut sub_senders,
                     &send_to,
                     m,
+                    on_send_failure,
                 ),
                 RouteTo::Multiple(receivers) => {
                     let num_receivers = receivers.len();
@@ -71,6 +75,7 @@ pub(crate) async fn tx<M, E, BS>(
                             &mut sub_senders,
                             addr,
                             m.clone(),
+                            on_send_failure,
                         );
                     }
                     send_msg(
@@ -82,6 +87,7 @@ pub(crate) async fn tx<M, E, BS>(
                         &mut sub_senders,
                         &receivers[num_receivers - 1],
                         m,
+                        on_send_failure,
                     );
                 }
             }
@@ -104,12 +110,16 @@ fn send_msg<M, E>(
     sub_senders: &mut JoinSet<()>,
     addr: &str,
     m: M,
+    on_send_failure: SendErrAction,
 ) where
     M: Msg,
     E: Encoder<M> + 'static + Send + Clone,
+    E::Error: Send + 'static,
 {
     if let Some(sender) = addr_to_buff.get(addr) {
-        let _ = sender.send(m);
+        if let Err(e) = sender.send(m) {
+            log::error!("[ACTOR] Failed to send message to {}: {}", addr, e);
+        }
     } else {
         let (tx, rx) = mpsc::unbounded_channel::<M>();
         sub_senders.spawn(sender_task(
@@ -119,6 +129,7 @@ fn send_msg<M, E>(
             rx,
             codec,
             controller_tx,
+            on_send_failure,
         ));
         let _ = tx.send(m);
         addr_to_buff.insert(addr.to_string(), tx);
@@ -132,9 +143,11 @@ async fn sender_task<M, E>(
     rx: mpsc::UnboundedReceiver<M>,
     encoder: E,
     controller_tx: mpsc::Sender<ControlReq>,
+    on_send_failure: SendErrAction,
 ) where
     M: Msg,
     E: Encoder<M> + 'static + Send,
+    E::Error: Send + 'static,
 {
     async fn remote_sender<C: Encoder<M> + 'static + Send, M>(
         my_addr: &'static str,
@@ -142,35 +155,114 @@ async fn sender_task<M, E>(
         mut tx: impl AsyncWrite + Unpin,
         mut rx: mpsc::UnboundedReceiver<M>,
         encoder: C,
-    ) {
+        on_send_failure: SendErrAction,
+    ) where
+        M: Msg,
+    {
         log::info!("[ACTOR] SubTx Started");
         let decoder_name = std::any::type_name::<M>().to_string();
         send_remote_handshake(&mut tx, my_addr, decoder_name, ask_receiver_to_adapt).await;
         let mut framed_writer = FramedWrite::new(tx, encoder);
-        loop {
-            if let Some(msg) = rx.recv().await
-                && framed_writer.send(msg).await.is_err()
-            {
-                break;
+
+        while let Some(msg) = rx.recv().await {
+            match on_send_failure {
+                SendErrAction::Drop => {
+                    if (framed_writer.send(msg).await).is_err() {
+                        log::warn!("[ACTOR] {} Dropping message due to send failure", my_addr);
+                    }
+                }
+                SendErrAction::Retry(retries_opt) => {
+                    let mut attempts = 0;
+                    loop {
+                        if let Some(retries) = retries_opt
+                            && attempts >= retries
+                        {
+                            log::error!("[ACTOR] {} Exhausted retries to send message", my_addr);
+                            break;
+                        }
+
+                        attempts += 1;
+
+                        // Note: here the below clone happens even for successful sends, causing inefficiency
+                        // But how can we know beforehand if the send will succeed or not?
+                        if (framed_writer.send(msg.clone()).await).is_err() {
+                            log::warn!(
+                                "[ACTOR] {} Failed to send message, Retrying {}",
+                                my_addr,
+                                attempts
+                            );
+                            tokio::time::sleep(Duration::from_millis(100)).await;
+                            continue;
+                        } else {
+                            break;
+                        }
+                    }
+                }
             }
         }
         log::info!("[ACTOR] SubTx Ended");
     }
 
+    /// - `tx`: Channel to the destination actor.
+    /// - `rx`: Internal channel for messages of type `M`, specific to this actor instance.
+    /// - Note: `tx` and `rx` are independent — `rx` collects messages locally between helper functions and
+    ///   `tx` delivers them to the actor. They don’t correlate directly.
     async fn local_sender<M: std::fmt::Debug + Send + 'static + Clone>(
         my_addr: &'static str,
         ask_receiver_to_adapt: bool,
         tx: mpsc::Sender<Box<dyn Any + Send>>,
         mut rx: mpsc::UnboundedReceiver<M>,
+        on_send_failure: SendErrAction,
     ) {
         log::info!("[ACTOR] SubTx Started (Local)");
         let decoder_name = std::any::type_name::<M>().to_string();
         send_local_handshake(&tx, my_addr, decoder_name, ask_receiver_to_adapt).await;
-        loop {
-            if let Some(msg) = rx.recv().await
-                && tx.send(Box::new(msg)).await.is_err()
-            {
-                break;
+        while let Some(msg) = rx.recv().await {
+            // if let Err(e) = tx.send(Box::new(msg)).await {
+            //     log::error!("[ACTOR] Failed to send local message: {}", e);
+            //     break;
+            // }
+            match on_send_failure {
+                SendErrAction::Drop => {
+                    if let Err(e) = tx.send(Box::new(msg)).await {
+                        log::warn!(
+                            "[ACTOR] {} Dropping message due to send failure: {}",
+                            my_addr,
+                            e
+                        );
+                    }
+                }
+                SendErrAction::Retry(retries_opt) => {
+                    let mut attempts = 0;
+                    loop {
+                        if let Some(retries) = retries_opt
+                            && attempts >= retries
+                        {
+                            log::error!(
+                                "[ACTOR] {} Exhausted retries to send local message",
+                                my_addr
+                            );
+                            break;
+                        }
+
+                        attempts += 1;
+
+                        // Note: here the below clone happens even for successful sends, causing inefficiency
+                        // But how can we know beforehand if the send will succeed or not?
+                        if let Err(e) = tx.send(Box::new(msg.clone())).await {
+                            log::warn!(
+                                "[ACTOR] {} Failed to send message, Retrying {}: {}",
+                                my_addr,
+                                attempts,
+                                e
+                            );
+                            tokio::time::sleep(Duration::from_millis(100)).await;
+                            continue;
+                        } else {
+                            break;
+                        }
+                    }
+                }
             }
         }
         log::info!("[ACTOR] SubTx Ended");
@@ -178,6 +270,7 @@ async fn sender_task<M, E>(
 
     loop {
         let (c_tx, c_rx) = tokio::sync::oneshot::channel();
+        log::debug!("[ACTOR] Sending Resolve request for address: {}", send_addr);
         controller_tx
             .send(ControlReq::Resolve {
                 resp_tx: c_tx,
@@ -201,18 +294,46 @@ async fn sender_task<M, E>(
                     }
                 };
 
-                remote_sender(my_addr, ask_receiver_to_adapt, tx, rx, encoder).await;
+                remote_sender(
+                    my_addr,
+                    ask_receiver_to_adapt,
+                    tx,
+                    rx,
+                    encoder,
+                    on_send_failure,
+                )
+                .await;
                 break;
             }
             Connection::Local(write_half) => {
-                local_sender(my_addr, ask_receiver_to_adapt, write_half, rx).await;
+                local_sender(
+                    my_addr,
+                    ask_receiver_to_adapt,
+                    write_half,
+                    rx,
+                    on_send_failure,
+                )
+                .await;
                 break;
             }
             Connection::CouldntResolve => {
                 log::warn!("[ACTOR] Failed to resolve {}", send_addr);
                 tokio::time::sleep(Duration::from_millis(100)).await;
-                // continue;
-                break;
+                match on_send_failure {
+                    SendErrAction::Drop => break,
+                    SendErrAction::Retry(retries_opt) => {
+                        if let Some(retries) = retries_opt
+                            && retries == 0
+                        {
+                            log::error!(
+                                "[ACTOR] {} Exhausted retries to resolve address {}",
+                                my_addr,
+                                send_addr
+                            );
+                            break;
+                        }
+                    }
+                }
             }
         };
     }

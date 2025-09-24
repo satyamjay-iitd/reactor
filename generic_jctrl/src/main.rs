@@ -79,12 +79,9 @@ port = 3000
   nodename = "node1"
   actor_name = "pinger"
   other = "ponger"
-    [placement.pinger.chaos.crash]
-    crash_ms = 10000
+  chaos.crash = { crash_ms = 10000 }
+  chaos.msg_loss = { start_ms = 10000, probability = 0.1 }
 
-    [placement.pinger.chaos.msg_loss]
-    start_ms = 10000
-    probability = 0.1
 
   [[placement.ponger]]
   nodename = "node1"
