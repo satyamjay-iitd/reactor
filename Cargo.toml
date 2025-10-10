@@ -9,7 +9,7 @@ members = [
     "macros",
     "examples/paxos",
     "examples/ping_pong",
-    "examples/read_write_server", "examples/paxos",
+    "examples/read_write_server",
     "examples/ab",
 ]
 

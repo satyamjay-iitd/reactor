@@ -391,7 +391,6 @@ async fn handle_actor_req(
                     .send(Connection::Remote(local.remote_actor_addr))
                     .unwrap();
             } else {
-                warn!("Couldn't Resolve {}", addr);
                 let _ = resp_tx.send(Connection::CouldntResolve);
             }
         }

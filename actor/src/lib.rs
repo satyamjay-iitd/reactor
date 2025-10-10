@@ -28,6 +28,8 @@ pub use node_comm::{Connection, ControlInst, ControlReq, NodeComm};
 pub use reactor_channel::{HasPriority, MAX_PRIO};
 pub use reactor_macros::actor;
 
+use crate::codec::ErrWithMsg;
+
 pub type ActorSpawnCB = fn(RuntimeCtx, HashMap<String, serde_json::Value>);
 
 pub struct ExportedFn {
@@ -332,10 +334,18 @@ impl<M: Msg> ActorSend for NoOpActorSend<M> {
     }
 }
 
+/// Defines the action to take when sending a message fails. Variants:
+/// - Drop: drops the message.
+/// - Retry: retries sending the message, with parameters:
+///   - attempts: maximum number of retry attempts (None for infinite retries).
+///   - delay_ms: delay in milliseconds between retry attempts.
 #[derive(Copy, Clone, Debug)]
 pub enum SendErrAction {
     Drop,
-    Retry(Option<u32>),
+    Retry {
+        attempts: Option<u16>,
+        delay_ms: u64,
+    },
 }
 
 /// The `Behaviour` struct encapsulates the complete behavior of an actor,
@@ -355,6 +365,7 @@ pub enum SendErrAction {
 /// - `proc`: The core processing logic implementing `ActorProcess`.
 /// - `send`: Optional sender logic implementing `ActorSend`.
 /// - `generators`: A list of internal message generators, producing messages of type `M`.
+/// - `on_send_failure`: Action to take when sending a message fails. Defaults to retrying 5 times with 100ms delay.
 ///
 pub struct Behaviour<R, P, S, M: 'static, MCD> {
     recv: Option<R>,
@@ -400,7 +411,10 @@ impl<P, IM, OM, MCD> BehaviourBuilder<NoOpActorRecv<IM>, P, NoOpActorSend<OM>, I
             master_codec,
             sub_decoders: None,
             ask_recver_to_adapt: false,
-            on_send_failure: SendErrAction::Drop,
+            on_send_failure: SendErrAction::Retry {
+                attempts: Some(5),
+                delay_ms: 100,
+            },
         }
     }
 }
@@ -537,7 +551,7 @@ where
     P: ActorProcess<IMsg = IM, OMsg = OM>,
     S: ActorSend<OMsg = OM>,
     MCD: Encoder<OM> + Decoder<Item = IM, Error = std::io::Error> + Send + Sync + Clone + 'static,
-    <MCD as Encoder<OM>>::Error: Send + 'static,
+    <MCD as Encoder<OM>>::Error: Send + 'static + ErrWithMsg<OM>,
 {
     pub async fn run(mut self, ctx: RuntimeCtx) -> Result<(), ActorError> {
         // let my_addr = ctx.addr.to_string();
