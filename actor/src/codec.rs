@@ -72,7 +72,6 @@ impl<M> From<std::io::Error> for EncodeError<M> {
 }
 
 impl<E: bincode::Encode, D> tokio_util::codec::Encoder<E> for BincodeCodec<E, D> {
-    // type Error = std::io::Error;
     type Error = EncodeError<E>;
     fn encode(&mut self, item: E, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let encoded_data = bincode::encode_to_vec(&item, self.config).map_err(|_| {
@@ -90,19 +89,6 @@ impl<E: bincode::Encode, D> tokio_util::codec::Encoder<E> for BincodeCodec<E, D>
         Ok(())
     }
 }
-// EncodeError {
-//     io_error:
-//     std::io::Error::new(
-//         std::io::ErrorKind::InvalidData,
-//         "Couldn't encode length-delimited data",
-//     ),
-//     msg: item,
-// }
-
-// std::io::Error::new(
-//     std::io::ErrorKind::InvalidData,
-//     EncodeErrorPayload{error_string: "Couldn't encode length-delimited data".to_string(), msg: item},
-// )
 
 #[derive(Clone)]
 pub struct BincodeSubdecoder<D, MD> {
