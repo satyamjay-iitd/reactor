@@ -356,7 +356,7 @@ async fn remote_parent_recv_subtask<M, AR, D, RX>(
                     tokio::time::sleep(Duration::from_millis(throttle_ms)).await;
                 }
                 if let Some(cstate) = cstate.as_ref() {
-                    let action = cstate.lock().await.after_recv(parent_addr, &msg).await;
+                    let action = cstate.lock().await.after_recv(parent_addr, &msg);
                     match action {
                         ChannelAction::PASS => {}
                         ChannelAction::PANIC => {
@@ -416,7 +416,7 @@ async fn local_parent_recv_subtask<M, AR>(
                     // let msg = msg.downcast::<M>().unwrap();
                     // let msg: M = msg.into();
                     if let Some(cstate) = after_recv.as_ref() {
-                        let action = cstate.lock().await.after_recv(parent_addr, &msg).await;
+                        let action = cstate.lock().await.after_recv(parent_addr, &msg);
                         match action {
                             ChannelAction::PASS => {}
                             ChannelAction::PANIC => {

@@ -58,7 +58,7 @@ fn get_registered() -> Vec<String> {
 
 static CHANNEL_SIZE: usize = 1 << 20;
 /// Messages that can flow between the actors.
-pub trait Msg: Send + Sync + std::fmt::Debug + HasPriority + 'static + Clone {}
+pub trait Msg: Send + std::fmt::Debug + HasPriority + 'static + Clone {}
 
 /// Addr of the actors
 pub type ActorAddr = String;
@@ -229,11 +229,7 @@ pub trait ActorRecv: Send + 'static {
     /// - `input`: A reference to the message that was received.
     ///
     /// It returns [`ChannelAction`] that determines how the actor should proceed.
-    fn after_recv(
-        &mut self,
-        worker_id: &str,
-        input: &Self::IMsg,
-    ) -> impl std::future::Future<Output = ChannelAction> + Send;
+    fn after_recv(&mut self, worker_id: &str, input: &Self::IMsg) -> ChannelAction;
 }
 
 pub struct NoOpActorRecv<M> {
@@ -241,7 +237,7 @@ pub struct NoOpActorRecv<M> {
 }
 impl<M: Msg> ActorRecv for NoOpActorRecv<M> {
     type IMsg = M;
-    async fn after_recv(&mut self, _addr: &str, _input: &Self::IMsg) -> ChannelAction {
+    fn after_recv(&mut self, _addr: &str, _input: &Self::IMsg) -> ChannelAction {
         panic!("This Shouldn't be used")
     }
 }
@@ -316,10 +312,7 @@ pub trait ActorSend: Send + 'static {
     /// # Returns
     ///
     /// a list of [`ActorAddrRef`] indicating the recipient actors.
-    fn before_send<'a>(
-        &'a mut self,
-        output: &Self::OMsg,
-    ) -> impl std::future::Future<Output = RouteTo<'a>> + Send;
+    fn before_send<'a>(&'a mut self, output: &Self::OMsg) -> RouteTo<'a>;
 }
 pub struct NoOpActorSend<M> {
     m: PhantomData<M>,
@@ -327,7 +320,7 @@ pub struct NoOpActorSend<M> {
 impl<M: Msg> ActorSend for NoOpActorSend<M> {
     type OMsg = M;
 
-    async fn before_send<'a>(&'a mut self, _output: &Self::OMsg) -> RouteTo<'a> {
+    fn before_send<'a>(&'a mut self, _output: &Self::OMsg) -> RouteTo<'a> {
         panic!("This Shouldn't be used")
     }
 }

@@ -33,7 +33,7 @@ pub(crate) async fn tx<M, E, BS>(
 
     if let Some(mut before_send) = before_send {
         while let Some((m, origin)) = p_rx.recv().await {
-            let receivers: RouteTo<'_> = before_send.before_send(&m).await;
+            let receivers: RouteTo<'_> = before_send.before_send(&m);
             match receivers {
                 RouteTo::Blackhole => {}
                 RouteTo::Reply => send_msg(
@@ -210,9 +210,9 @@ async fn sender_task<M, E>(
             }
             Connection::CouldntResolve => {
                 log::warn!("[ACTOR] Failed to resolve {}", send_addr);
-                tokio::time::sleep(Duration::from_millis(100)).await;
-                // continue;
-                break;
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                continue;
+                // break;
             }
         };
     }
