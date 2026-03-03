@@ -26,9 +26,11 @@ pub fn actor(_attr: TokenStream, item: TokenStream) -> TokenStream {
 pub fn auto_default_priority(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let name = &input.ident;
+    let generics = &input.generics;
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     TokenStream::from(quote! {
-        impl reactor_actor::HasPriority for #name {}
+        impl #impl_generics reactor_actor::HasPriority for #name #ty_generics #where_clause {}
     })
 }
 
@@ -36,9 +38,11 @@ pub fn auto_default_priority(input: TokenStream) -> TokenStream {
 pub fn auto_msg(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let name = &input.ident;
+    let generics = &input.generics;
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     TokenStream::from(quote! {
-        impl reactor_actor::Msg for #name {}
+        impl #impl_generics reactor_actor::Msg for #name #ty_generics #where_clause {}
     })
 }
 

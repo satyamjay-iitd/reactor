@@ -40,7 +40,7 @@ struct ServerSender;
 impl reactor_actor::ActorSend for ServerSender {
     type OMsg = ServerOut;
 
-    async fn before_send<'a>(&'a mut self, _output: &Self::OMsg) -> RouteTo<'a> {
+    fn before_send<'a>(&'a mut self, _output: &Self::OMsg) -> RouteTo<'a> {
         RouteTo::Reply
     }
 }

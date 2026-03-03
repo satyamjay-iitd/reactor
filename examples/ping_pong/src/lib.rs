@@ -51,7 +51,7 @@ struct Sender {
 impl reactor_actor::ActorSend for Sender {
     type OMsg = PingPongMsg;
 
-    async fn before_send<'a>(&'a mut self, _output: &Self::OMsg) -> RouteTo<'a> {
+    fn before_send<'a>(&'a mut self, _output: &Self::OMsg) -> RouteTo<'a> {
         #[cfg(feature = "chaos")]
         {
             let b: bool = random();

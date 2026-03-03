@@ -4,7 +4,12 @@ lib_name = "ping_pong_actor"
 
 [[nodes]]
 name = "node1"
-hostname = "0.0.0.0"
+hostname = "10.144.224.104"
+port = 3000
+
+[[nodes]]
+name = "node2"
+hostname = "10.237.23.159"
 port = 3000
 
 [placement]
@@ -14,6 +19,6 @@ port = 3000
   other = "ponger"
 
   [[placement.pingpong]]
-  nodename = "node1"
+  nodename = "node2"
   actor_name = "ponger"
   other = "pinger"

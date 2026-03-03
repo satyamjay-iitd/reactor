@@ -15,7 +15,7 @@ pub struct ClientSender<R> {
 impl<R: Msg> reactor_actor::ActorSend for ClientSender<R> {
     type OMsg = R;
 
-    async fn before_send<'a>(&'a mut self, _output: &Self::OMsg) -> RouteTo<'a> {
+    fn before_send<'a>(&'a mut self, _output: &Self::OMsg) -> RouteTo<'a> {
         RouteTo::from(self.server_addr.as_str())
     }
 }
