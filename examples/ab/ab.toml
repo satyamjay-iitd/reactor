@@ -1,0 +1,25 @@
+[[ops]]
+name = "writer"
+lib_name = "ab_actor"
+
+[[ops]]
+name = "reader"
+lib_name = "ab_actor"
+
+[[nodes]]
+name = "node1"
+hostname = "0.0.0.0"
+port = 3000
+
+[placement]
+  [[placement.writer]]
+  nodename = "node1"
+  actor_name = "writer"
+  other = "reader"
+  chaos.msg_loss = { start_ms = 100, probability = 0.5 }
+
+  [[placement.reader]]
+  nodename = "node1"
+  actor_name = "reader"
+  other = "writer"
+  chaos.msg_loss = { start_ms = 100, probability = 0.5 }

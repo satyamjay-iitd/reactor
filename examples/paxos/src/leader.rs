@@ -3,7 +3,7 @@ use crate::common::{AcceptorAddr, Ballot, LeaderAddr, PaxosMsg, Val};
 use log::info;
 use rand::random;
 use reactor_actor::codec::BincodeCodec;
-use reactor_actor::{BehaviourBuilder, RouteTo, RuntimeCtx};
+use reactor_actor::{BehaviourBuilder, RouteTo, RuntimeCtx, SendErrAction};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::thread;
@@ -182,6 +182,7 @@ pub async fn actor(ctx: RuntimeCtx, acceptors: Vec<AcceptorAddr>) {
     )
     .send(Sender::new(ctx.addr, acceptors))
     .generator(BallotIterator::new(ctx.addr))
+    .on_send_failure(SendErrAction::Drop) // Retry up to 10 times with 100ms delay
     .build()
     .run(ctx)
     .await
