@@ -1,7 +1,7 @@
 //! a generic node controller. use this if you dont intend to modify any
 //! node_controller logic
 
-use clap::{Parser, arg};
+use clap::Parser;
 use reactor_node::node_controller;
 use std::path::PathBuf;
 

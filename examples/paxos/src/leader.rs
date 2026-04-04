@@ -122,16 +122,15 @@ impl reactor_actor::ActorProcess for Leader {
                 self.vote_count = 0;
                 self.max_val = HashMap::new();
                 self.proposed_val = None;
-                if self.consensus_val.is_none() {
-                    // Start a ballot if we have not reached consensus
-                    vec![PaxosMsg::A1(l, b)]
-                } else {
+                if let Some(val) = self.consensus_val {
                     info!(
                         "{} ignoring A1 message since consensus is reached on value {}",
-                        self.addr,
-                        self.consensus_val.unwrap()
+                        self.addr, val
                     );
                     vec![]
+                } else {
+                    // Start a ballot if we have not reached consensus
+                    vec![PaxosMsg::A1(l, b)]
                 }
             }
             PaxosMsg::B1(acceptor, leader, b, last_ballot, last_val) => {
