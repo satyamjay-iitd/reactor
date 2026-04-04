@@ -5,7 +5,7 @@ use crate::SLEEP_MS;
 use crate::common::{AcceptorAddr, Ballot, PaxosMsg, Val};
 use log::info;
 use reactor_actor::codec::BincodeCodec;
-use reactor_actor::{BehaviourBuilder, RouteTo, RuntimeCtx};
+use reactor_actor::{BehaviourBuilder, RouteTo, RuntimeCtx, SendErrAction};
 
 struct Sender {
     addr: &'static str,
@@ -84,6 +84,10 @@ impl reactor_actor::ActorProcess for Acceptor {
 pub async fn acceptor(ctx: RuntimeCtx) {
     BehaviourBuilder::new(Acceptor::new(ctx.addr), BincodeCodec::default())
         .send(Sender { addr: ctx.addr })
+        .on_send_failure(SendErrAction::Retry {
+            attempts: Some(5),
+            delay_ms: 100,
+        })
         .build()
         .run(ctx)
         .await

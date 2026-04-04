@@ -1,0 +1,20 @@
+[package]
+name = "ab"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+name = "ab_actor"
+crate-type = ["cdylib", "rlib"] 
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+bincode = { version = "2.0.0", features = ["serde"] }
+reactor-actor = { path = "../../actor" }
+reactor-macros = { path = "../../macros" }
+lazy_static = "1.5.0"
+serde_json = "1.0.140"
+log = "0.4.27"

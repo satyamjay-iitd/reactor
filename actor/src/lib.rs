@@ -28,6 +28,8 @@ pub use node_comm::{Connection, ControlInst, ControlReq, NodeComm};
 pub use reactor_channel::{HasPriority, MAX_PRIO};
 pub use reactor_macros::actor;
 
+use crate::codec::ErrWithMsg;
+
 pub type ActorSpawnCB = fn(RuntimeCtx, HashMap<String, serde_json::Value>);
 
 pub struct ExportedFn {
@@ -332,6 +334,20 @@ impl<M: Msg> ActorSend for NoOpActorSend<M> {
     }
 }
 
+/// Defines the action to take when sending a message fails. Variants:
+/// - Drop: drops the message.
+/// - Retry: retries sending the message, with parameters:
+///   - attempts: maximum number of retry attempts (None for infinite retries).
+///   - delay_ms: delay in milliseconds between retry attempts.
+#[derive(Copy, Clone, Debug)]
+pub enum SendErrAction {
+    Drop,
+    Retry {
+        attempts: Option<u16>,
+        delay_ms: u64,
+    },
+}
+
 /// The `Behaviour` struct encapsulates the complete behavior of an actor,
 /// including how it receives messages, processes them, sends output,
 /// and optionally generates new messages.
@@ -349,6 +365,7 @@ impl<M: Msg> ActorSend for NoOpActorSend<M> {
 /// - `proc`: The core processing logic implementing `ActorProcess`.
 /// - `send`: Optional sender logic implementing `ActorSend`.
 /// - `generators`: A list of internal message generators, producing messages of type `M`.
+/// - `on_send_failure`: Action to take when sending a message fails. Defaults to retrying 5 times with 100ms delay.
 ///
 pub struct Behaviour<R, P, S, M: 'static, MCD> {
     recv: Option<R>,
@@ -359,6 +376,7 @@ pub struct Behaviour<R, P, S, M: 'static, MCD> {
     master_codec: MCD,
     sub_decoders: Option<SubDecoderStore<M>>,
     receiver_should_adapt: bool,
+    on_send_failure: SendErrAction,
 }
 
 pub struct DecoderProvider<M> {
@@ -378,6 +396,7 @@ pub struct BehaviourBuilder<R, P, S, IM: 'static, OM, MCD> {
     sub_decoders: Option<SubDecoderStore<IM>>,
     ask_recver_to_adapt: bool,
     m: PhantomData<OM>,
+    on_send_failure: SendErrAction,
 }
 
 impl<P, IM, OM, MCD> BehaviourBuilder<NoOpActorRecv<IM>, P, NoOpActorSend<OM>, IM, OM, MCD> {
@@ -392,6 +411,10 @@ impl<P, IM, OM, MCD> BehaviourBuilder<NoOpActorRecv<IM>, P, NoOpActorSend<OM>, I
             master_codec,
             sub_decoders: None,
             ask_recver_to_adapt: false,
+            on_send_failure: SendErrAction::Retry {
+                attempts: Some(5),
+                delay_ms: 100,
+            },
         }
     }
 }
@@ -411,6 +434,7 @@ impl<R, P, S, IM, OM, MCD> BehaviourBuilder<R, P, S, IM, OM, MCD> {
             master_codec: self.master_codec,
             sub_decoders: self.sub_decoders,
             ask_recver_to_adapt: self.ask_recver_to_adapt,
+            on_send_failure: self.on_send_failure,
         }
     }
     pub fn send<S1>(self, send: S1) -> BehaviourBuilder<R, P, S1, IM, OM, MCD>
@@ -427,6 +451,7 @@ impl<R, P, S, IM, OM, MCD> BehaviourBuilder<R, P, S, IM, OM, MCD> {
             master_codec: self.master_codec,
             sub_decoders: self.sub_decoders,
             ask_recver_to_adapt: self.ask_recver_to_adapt,
+            on_send_failure: self.on_send_failure,
         }
     }
 
@@ -471,6 +496,14 @@ impl<R, P, S, IM, OM, MCD> BehaviourBuilder<R, P, S, IM, OM, MCD> {
         self
     }
 
+    pub fn on_send_failure(
+        mut self,
+        action: SendErrAction,
+    ) -> BehaviourBuilder<R, P, S, IM, OM, MCD> {
+        self.on_send_failure = action;
+        self
+    }
+
     pub fn build(self) -> Behaviour<R, P, S, IM, MCD> {
         Behaviour {
             recv: self.recv,
@@ -481,6 +514,7 @@ impl<R, P, S, IM, OM, MCD> BehaviourBuilder<R, P, S, IM, OM, MCD> {
             master_codec: self.master_codec,
             sub_decoders: self.sub_decoders,
             receiver_should_adapt: self.ask_recver_to_adapt,
+            on_send_failure: self.on_send_failure,
         }
     }
 }
@@ -517,6 +551,7 @@ where
     P: ActorProcess<IMsg = IM, OMsg = OM>,
     S: ActorSend<OMsg = OM>,
     MCD: Encoder<OM> + Decoder<Item = IM, Error = std::io::Error> + Send + Sync + Clone + 'static,
+    <MCD as Encoder<OM>>::Error: Send + 'static + ErrWithMsg<OM>,
 {
     pub async fn run(mut self, ctx: RuntimeCtx) -> Result<(), ActorError> {
         // let my_addr = ctx.addr.to_string();
@@ -630,6 +665,7 @@ where
             p2s_rx,
             controller_tx,
             self.master_codec,
+            self.on_send_failure,
         ));
         rx_handle.await??;
         proc_handle.await??;

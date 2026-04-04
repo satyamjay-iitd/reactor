@@ -54,7 +54,9 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use reactor_jobm::placement::{CrashOp, MsgLossOp, Probability};
+    use reactor_jobm::placement::{
+        CrashOp, Factor, MsgDelayOp, MsgDuplicationOp, MsgLossOp, Probability,
+    };
     use serde_json::json;
     use std::collections::HashMap;
 
@@ -79,12 +81,11 @@ port = 3000
   nodename = "node1"
   actor_name = "pinger"
   other = "ponger"
-    [placement.pinger.chaos.crash]
-    crash_ms = 10000
+  chaos.crash = { crash_ms = 10000 }
+  chaos.msg_loss = { start_ms = 1000, probability = 0.1 }
+  chaos.msg_duplication = { start_ms = 2000, probability = 0.1, factor = 2 }
+  chaos.msg_delay = { start_ms = 3000, delay_range_ms = [100,200], senders = ["ponger"] }
 
-    [placement.pinger.chaos.msg_loss]
-    start_ms = 10000
-    probability = 0.1
 
   [[placement.ponger]]
   nodename = "node1"
@@ -122,12 +123,22 @@ port = 3000
                                 restart_ms: None,
                             }),
                             msg_loss: Some(MsgLossOp {
-                                start_ms: Some(10000),
+                                start_ms: Some(1000),
                                 probability: Probability(0.1),
                                 stop_ms: None,
                             }),
-                            msg_duplication: None,
-                            msg_delay: None,
+                            msg_duplication: Some(MsgDuplicationOp {
+                                start_ms: Some(2000),
+                                probability: Probability(0.1),
+                                factor: Factor(2),
+                                stop_ms: None,
+                            }),
+                            msg_delay: Some(MsgDelayOp {
+                                start_ms: Some(3000),
+                                stop_ms: None,
+                                delay_range_ms: (100, 200),
+                                senders: vec!["ponger".into()],
+                            }),
                         }),
                     }],
                 ),

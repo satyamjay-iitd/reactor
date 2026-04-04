@@ -47,19 +47,44 @@ impl<E, D: bincode::Decode<()>> tokio_util::codec::Decoder for BincodeCodec<E, D
     }
 }
 
+pub struct EncodeError<M> {
+    pub io_error: std::io::Error,
+    pub msg: Option<M>,
+}
+
+pub trait ErrWithMsg<M> {
+    fn into_inner(self) -> Option<M>;
+}
+
+impl<M> ErrWithMsg<M> for EncodeError<M> {
+    fn into_inner(self) -> Option<M> {
+        self.msg
+    }
+}
+
+impl<M> From<std::io::Error> for EncodeError<M> {
+    fn from(err: std::io::Error) -> Self {
+        EncodeError {
+            io_error: err,
+            msg: None,
+        }
+    }
+}
+
 impl<E: bincode::Encode, D> tokio_util::codec::Encoder<E> for BincodeCodec<E, D> {
-    type Error = std::io::Error;
+    type Error = EncodeError<E>;
     fn encode(&mut self, item: E, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let encoded_data = bincode::encode_to_vec(&item, self.config).map_err(|_| {
             std::io::Error::new(std::io::ErrorKind::InvalidData, "Failed to encode data")
         })?;
         self.length_codec
             .encode(Bytes::from(encoded_data), dst)
-            .map_err(|_| {
-                std::io::Error::new(
+            .map_err(|_| EncodeError {
+                io_error: std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
                     "Couldn't encode length-delimited data",
-                )
+                ),
+                msg: Some(item),
             })?;
         Ok(())
     }
