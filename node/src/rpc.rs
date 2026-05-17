@@ -24,7 +24,9 @@ use utoipa::{OpenApi, ToSchema};
 #[cfg(feature = "swagger")]
 use utoipa_swagger_ui::SwaggerUi;
 
-use crate::JobControllerReq;
+#[cfg(feature = "chaos")]
+use crate::ChaosMsg;
+use crate::{ActorLifeCycle, JobControllerReq, SpawnActor};
 
 #[derive(Clone)]
 struct AppState {
@@ -122,15 +124,13 @@ async fn register_lib(
                 resp_tx: tx,
             })
             .unwrap();
-        let register_result = rx.await.unwrap();
-        assert!(register_result.is_some());
-
-        axum::http::StatusCode::CREATED
+        match rx.await.unwrap() {
+            Ok(()) => (axum::http::StatusCode::CREATED, String::new()),
+            Err(e) => (axum::http::StatusCode::BAD_REQUEST, e.to_string()),
+        }
     }
     #[cfg(not(feature = "dynop"))]
-    {
-        axum::http::StatusCode::NOT_IMPLEMENTED
-    }
+    axum::http::StatusCode::NOT_IMPLEMENTED
 }
 
 #[cfg_attr(feature = "swagger", utoipa::path(
@@ -153,13 +153,15 @@ async fn start_actor(
     state
         .clone()
         .tx
-        .send(JobControllerReq::SpawnActor {
-            addr: args.actor_name.clone(),
-            resp_tx: tx,
-            op_name: args.operator_name,
-            lib_name: args.lib_name,
-            payload: args.payload,
-        })
+        .send(JobControllerReq::ActorLifeCycle(
+            ActorLifeCycle::SpawnActor(SpawnActor {
+                addr: args.actor_name.clone(),
+                resp_tx: tx,
+                op_name: args.operator_name,
+                lib_name: args.lib_name,
+                payload: args.payload,
+            }),
+        ))
         .unwrap();
     let status = rx.await.unwrap();
     assert!(status.is_some());
@@ -225,10 +227,12 @@ async fn actor_added(
     state
         .clone()
         .tx
-        .send(JobControllerReq::RemoteActorAdded {
-            addr: actor_info.name,
-            sock_addr: SocketAddr::new(remote_ip, actor_info.port),
-        })
+        .send(JobControllerReq::ActorLifeCycle(
+            ActorLifeCycle::RemoteActorAdded {
+                addr: actor_info.name,
+                sock_addr: SocketAddr::new(remote_ip, actor_info.port),
+            },
+        ))
         .unwrap();
     (axum::http::StatusCode::CREATED, "Actor added!")
 }
@@ -248,9 +252,11 @@ async fn stop_actor(
     state
         .clone()
         .tx
-        .send(JobControllerReq::StopActor {
-            addr: actor_addr.clone(),
-        })
+        .send(JobControllerReq::ActorLifeCycle(
+            ActorLifeCycle::StopActor {
+                addr: actor_addr.clone(),
+            },
+        ))
         .unwrap();
     (
         axum::http::StatusCode::OK,
@@ -269,10 +275,16 @@ async fn stop_all_actors(State(state): State<Arc<AppState>>) -> impl IntoRespons
     state
         .clone()
         .tx
-        .send(JobControllerReq::StopAllActors)
+        .send(JobControllerReq::ActorLifeCycle(
+            ActorLifeCycle::StopAllActors,
+        ))
         .unwrap();
     (axum::http::StatusCode::OK, "Actors Stopped!")
 }
+
+//////////////////////////////////////////////////////////////////////
+////////////////////////// CHAOS APIs ////////////////////////////////
+//////////////////////////////////////////////////////////////////////
 
 #[cfg_attr(feature="swagger", utoipa::path(
     post,
@@ -285,16 +297,21 @@ async fn set_duplication(
     State(state): State<Arc<AppState>>,
     Json(dupl_request): Json<MsgDuplicationRequest>,
 ) -> impl IntoResponse {
-    state
-        .clone()
-        .tx
-        .send(JobControllerReq::MsgDuplication {
-            actor_name: dupl_request.actor_name,
-            factor: dupl_request.factor,
-            probability: dupl_request.probability,
-        })
-        .unwrap();
-    (axum::http::StatusCode::OK, "Chaos Config Applied!")
+    #[cfg(feature = "chaos")]
+    {
+        state
+            .clone()
+            .tx
+            .send(JobControllerReq::ChaosMsg(ChaosMsg::MsgDuplication {
+                actor_name: dupl_request.actor_name,
+                factor: dupl_request.factor,
+                probability: dupl_request.probability,
+            }))
+            .unwrap();
+        (axum::http::StatusCode::OK, "Chaos Config Applied!")
+    }
+    #[cfg(not(feature = "chaos"))]
+    axum::http::StatusCode::NOT_IMPLEMENTED
 }
 
 #[cfg_attr(feature="swagger", utoipa::path(
@@ -308,15 +325,20 @@ async fn set_msg_loss(
     State(state): State<Arc<AppState>>,
     Json(loss_request): Json<MsgLossRequest>,
 ) -> impl IntoResponse {
-    state
-        .clone()
-        .tx
-        .send(JobControllerReq::MsgLoss {
-            actor_name: loss_request.actor_name,
-            probability: loss_request.probability,
-        })
-        .unwrap();
-    (axum::http::StatusCode::OK, "Chaos Config Applied!")
+    #[cfg(feature = "chaos")]
+    {
+        state
+            .clone()
+            .tx
+            .send(JobControllerReq::ChaosMsg(ChaosMsg::MsgLoss {
+                actor_name: loss_request.actor_name,
+                probability: loss_request.probability,
+            }))
+            .unwrap();
+        (axum::http::StatusCode::OK, "Chaos Config Applied!")
+    }
+    #[cfg(not(feature = "chaos"))]
+    axum::http::StatusCode::NOT_IMPLEMENTED
 }
 
 #[cfg_attr(feature="swagger", utoipa::path(
@@ -330,19 +352,24 @@ async fn set_msg_delay(
     State(state): State<Arc<AppState>>,
     Json(delay_request): Json<MsgDelayRequest>,
 ) -> impl IntoResponse {
-    state
-        .clone()
-        .tx
-        .send(JobControllerReq::MsgDelay {
-            actor_name: delay_request.actor_name,
-            senders: delay_request.senders,
-            delay_range_ms: (
-                delay_request.delay_range_start,
-                delay_request.delay_range_end,
-            ),
-        })
-        .unwrap();
-    (axum::http::StatusCode::OK, "Chaos Config Applied!")
+    #[cfg(feature = "chaos")]
+    {
+        state
+            .clone()
+            .tx
+            .send(JobControllerReq::ChaosMsg(ChaosMsg::MsgDelay {
+                actor_name: delay_request.actor_name,
+                senders: delay_request.senders,
+                delay_range_ms: (
+                    delay_request.delay_range_start,
+                    delay_request.delay_range_end,
+                ),
+            }))
+            .unwrap();
+        (axum::http::StatusCode::OK, "Chaos Config Applied!")
+    }
+    #[cfg(not(feature = "chaos"))]
+    axum::http::StatusCode::NOT_IMPLEMENTED
 }
 
 #[cfg_attr(feature="swagger", utoipa::path(
@@ -356,14 +383,21 @@ async fn unset_msg_duplication(
     State(state): State<Arc<AppState>>,
     Json(actor_addr): Json<String>,
 ) -> impl IntoResponse {
-    state
-        .clone()
-        .tx
-        .send(JobControllerReq::DisableMsgDuplication {
-            actor_name: actor_addr,
-        })
-        .unwrap();
-    (axum::http::StatusCode::OK, "Chaos Config Removed!")
+    #[cfg(feature = "chaos")]
+    {
+        state
+            .clone()
+            .tx
+            .send(JobControllerReq::ChaosMsg(
+                ChaosMsg::DisableMsgDuplication {
+                    actor_name: actor_addr,
+                },
+            ))
+            .unwrap();
+        (axum::http::StatusCode::OK, "Chaos Config Removed!")
+    }
+    #[cfg(not(feature = "chaos"))]
+    axum::http::StatusCode::NOT_IMPLEMENTED
 }
 
 #[cfg_attr(feature="swagger", utoipa::path(
@@ -377,14 +411,19 @@ async fn unset_msg_loss(
     State(state): State<Arc<AppState>>,
     Json(actor_addr): Json<String>,
 ) -> impl IntoResponse {
-    state
-        .clone()
-        .tx
-        .send(JobControllerReq::DisableMsgLoss {
-            actor_name: actor_addr,
-        })
-        .unwrap();
-    (axum::http::StatusCode::OK, "Chaos Config Removed!")
+    #[cfg(feature = "chaos")]
+    {
+        state
+            .clone()
+            .tx
+            .send(JobControllerReq::ChaosMsg(ChaosMsg::DisableMsgLoss {
+                actor_name: actor_addr,
+            }))
+            .unwrap();
+        (axum::http::StatusCode::OK, "Chaos Config Removed!")
+    }
+    #[cfg(not(feature = "chaos"))]
+    axum::http::StatusCode::NOT_IMPLEMENTED
 }
 
 #[cfg_attr(feature="swagger", utoipa::path(
@@ -398,17 +437,23 @@ async fn unset_msg_delay(
     State(state): State<Arc<AppState>>,
     Json(disable_delay_request): Json<DisableMsgDelayRequest>,
 ) -> impl IntoResponse {
-    state
-        .clone()
-        .tx
-        .send(JobControllerReq::DisableMsgDelay {
-            actor_name: disable_delay_request.actor_name,
-            senders: disable_delay_request.senders,
-        })
-        .unwrap();
-    (axum::http::StatusCode::OK, "Chaos Config Removed!")
+    #[cfg(feature = "chaos")]
+    {
+        state
+            .clone()
+            .tx
+            .send(JobControllerReq::ChaosMsg(ChaosMsg::DisableMsgDelay {
+                actor_name: disable_delay_request.actor_name,
+                senders: disable_delay_request.senders,
+            }))
+            .unwrap();
+        (axum::http::StatusCode::OK, "Chaos Config Removed!")
+    }
+    #[cfg(not(feature = "chaos"))]
+    axum::http::StatusCode::NOT_IMPLEMENTED
 }
-#[derive(Serialize, ToSchema)]
+#[cfg_attr(feature = "swagger", derive(ToSchema))]
+#[derive(Serialize)]
 struct StatusResponse {
     actors: Vec<String>,
     loaded_libs: HashMap<String, Vec<String>>,
@@ -424,7 +469,9 @@ async fn get_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let (tx, rx) = tokio::sync::oneshot::channel();
     state
         .tx
-        .send(JobControllerReq::GetStatus { resp_tx: tx })
+        .send(JobControllerReq::ActorLifeCycle(
+            ActorLifeCycle::GetStatus { resp_tx: tx },
+        ))
         .unwrap();
     let result = rx.await.unwrap();
     (
@@ -444,13 +491,13 @@ async fn get_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     register_lib,
     stop_actor,
     stop_all_actors,
+    get_status,
     set_duplication,
     set_msg_loss,
     set_msg_delay,
     unset_msg_duplication,
     unset_msg_loss,
     unset_msg_delay,
-    get_status
 ))]
 struct ApiDoc;
 
@@ -468,7 +515,8 @@ pub async fn webserver(job_control_tx: UnboundedSender<JobControllerReq>, port: 
         .route("/set_msg_delay", post(set_msg_delay))
         .route("/unset_msg_duplication", post(unset_msg_duplication))
         .route("/unset_msg_loss", post(unset_msg_loss))
-        .route("/unset_msg_delay", post(unset_msg_delay))
+        .route("/unset_msg_delay", post(unset_msg_delay));
+    let app = app
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)       // allow all origins
@@ -509,7 +557,11 @@ pub async fn webserver(job_control_tx: UnboundedSender<JobControllerReq>, port: 
         );
 
     #[cfg(feature = "swagger")]
-    let app = app.merge(SwaggerUi::new("/docs").url("/api-doc/openapi.json", ApiDoc::openapi()));
+    let app = {
+        #[allow(unused_mut)]
+        let mut doc = ApiDoc::openapi();
+        app.merge(SwaggerUi::new("/docs").url("/api-doc/openapi.json", doc))
+    };
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}"))
         .await
