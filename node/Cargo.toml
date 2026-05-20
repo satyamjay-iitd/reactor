@@ -30,7 +30,7 @@ utoipa-swagger-ui = { version = "9", features = ["axum"], optional = true}
 cargo_toml = {version = "0.22", optional = true}
 
 [features]
-default = ["swagger", "chaos"]
+default = ["swagger"]
 swagger = ["utoipa-swagger-ui", "utoipa"]
 dynop = ["cargo_toml"]
 chaos = []

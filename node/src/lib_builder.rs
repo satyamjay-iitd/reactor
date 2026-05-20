@@ -17,6 +17,8 @@ pub enum BuildError {
     Io(#[from] std::io::Error),
     #[error("Couldn't Load the Library")]
     LibraryLoadFailed,
+    #[error("Code generation failed: {0}")]
+    CodegenFailed(String),
 }
 
 impl LibBuilder {

@@ -294,18 +294,18 @@ async fn stop_all_actors(State(state): State<Arc<AppState>>) -> impl IntoRespons
     )
 ))]
 async fn set_duplication(
-    State(state): State<Arc<AppState>>,
-    Json(dupl_request): Json<MsgDuplicationRequest>,
+    State(_state): State<Arc<AppState>>,
+    Json(_dupl_request): Json<MsgDuplicationRequest>,
 ) -> impl IntoResponse {
     #[cfg(feature = "chaos")]
     {
-        state
+        _state
             .clone()
             .tx
             .send(JobControllerReq::ChaosMsg(ChaosMsg::MsgDuplication {
-                actor_name: dupl_request.actor_name,
-                factor: dupl_request.factor,
-                probability: dupl_request.probability,
+                actor_name: _dupl_request.actor_name,
+                factor: _dupl_request.factor,
+                probability: _dupl_request.probability,
             }))
             .unwrap();
         (axum::http::StatusCode::OK, "Chaos Config Applied!")
@@ -322,17 +322,17 @@ async fn set_duplication(
     )
 ))]
 async fn set_msg_loss(
-    State(state): State<Arc<AppState>>,
-    Json(loss_request): Json<MsgLossRequest>,
+    State(_state): State<Arc<AppState>>,
+    Json(_loss_request): Json<MsgLossRequest>,
 ) -> impl IntoResponse {
     #[cfg(feature = "chaos")]
     {
-        state
+        _state
             .clone()
             .tx
             .send(JobControllerReq::ChaosMsg(ChaosMsg::MsgLoss {
-                actor_name: loss_request.actor_name,
-                probability: loss_request.probability,
+                actor_name: _loss_request.actor_name,
+                probability: _loss_request.probability,
             }))
             .unwrap();
         (axum::http::StatusCode::OK, "Chaos Config Applied!")
@@ -349,20 +349,20 @@ async fn set_msg_loss(
     )
 ))]
 async fn set_msg_delay(
-    State(state): State<Arc<AppState>>,
-    Json(delay_request): Json<MsgDelayRequest>,
+    State(_state): State<Arc<AppState>>,
+    Json(_delay_request): Json<MsgDelayRequest>,
 ) -> impl IntoResponse {
     #[cfg(feature = "chaos")]
     {
-        state
+        _state
             .clone()
             .tx
             .send(JobControllerReq::ChaosMsg(ChaosMsg::MsgDelay {
-                actor_name: delay_request.actor_name,
-                senders: delay_request.senders,
+                actor_name: _delay_request.actor_name,
+                senders: _delay_request.senders,
                 delay_range_ms: (
-                    delay_request.delay_range_start,
-                    delay_request.delay_range_end,
+                    _delay_request.delay_range_start,
+                    _delay_request.delay_range_end,
                 ),
             }))
             .unwrap();
@@ -380,17 +380,17 @@ async fn set_msg_delay(
     )
 ))]
 async fn unset_msg_duplication(
-    State(state): State<Arc<AppState>>,
-    Json(actor_addr): Json<String>,
+    State(_state): State<Arc<AppState>>,
+    Json(_actor_addr): Json<String>,
 ) -> impl IntoResponse {
     #[cfg(feature = "chaos")]
     {
-        state
+        _state
             .clone()
             .tx
             .send(JobControllerReq::ChaosMsg(
                 ChaosMsg::DisableMsgDuplication {
-                    actor_name: actor_addr,
+                    actor_name: _actor_addr,
                 },
             ))
             .unwrap();
@@ -408,16 +408,16 @@ async fn unset_msg_duplication(
     )
 ))]
 async fn unset_msg_loss(
-    State(state): State<Arc<AppState>>,
-    Json(actor_addr): Json<String>,
+    State(_state): State<Arc<AppState>>,
+    Json(_actor_addr): Json<String>,
 ) -> impl IntoResponse {
     #[cfg(feature = "chaos")]
     {
-        state
+        _state
             .clone()
             .tx
             .send(JobControllerReq::ChaosMsg(ChaosMsg::DisableMsgLoss {
-                actor_name: actor_addr,
+                actor_name: _actor_addr,
             }))
             .unwrap();
         (axum::http::StatusCode::OK, "Chaos Config Removed!")
@@ -434,17 +434,17 @@ async fn unset_msg_loss(
     )
 ))]
 async fn unset_msg_delay(
-    State(state): State<Arc<AppState>>,
-    Json(disable_delay_request): Json<DisableMsgDelayRequest>,
+    State(_state): State<Arc<AppState>>,
+    Json(_disable_delay_request): Json<DisableMsgDelayRequest>,
 ) -> impl IntoResponse {
     #[cfg(feature = "chaos")]
     {
-        state
+        _state
             .clone()
             .tx
             .send(JobControllerReq::ChaosMsg(ChaosMsg::DisableMsgDelay {
-                actor_name: disable_delay_request.actor_name,
-                senders: disable_delay_request.senders,
+                actor_name: _disable_delay_request.actor_name,
+                senders: _disable_delay_request.senders,
             }))
             .unwrap();
         (axum::http::StatusCode::OK, "Chaos Config Removed!")

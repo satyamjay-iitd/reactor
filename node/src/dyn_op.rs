@@ -14,7 +14,7 @@ use crate::LocalActor;
 use crate::RemoteActor;
 use crate::code_gen;
 use crate::handle_actor_req;
-use crate::lib_builder::LibBuilder;
+use crate::lib_builder::{BuildError, LibBuilder};
 use crate::op_lib_manager;
 use crate::rpc;
 use rpc::webserver;
@@ -49,12 +49,15 @@ async fn handle_job_req<CG: CodeGenerator + Send + Sync + 'static>(
             resp_tx,
         } => {
             info!("[Node] Registering Op from lib: {lib_name}");
-            let (code, cargo_toml) = code_gen.generate(args);
-            resp_tx
-                .send(LibBuilder::build(code, cargo_toml).map(|lib| {
-                    op_lib.add_lib(lib_name, lib);
-                }))
-                .unwrap();
+            let result = code_gen
+                .generate(args)
+                .map_err(|e| BuildError::CodegenFailed(e.to_string()))
+                .and_then(|(code, cargo_toml)| {
+                    LibBuilder::build(code, cargo_toml).map(|lib| {
+                        op_lib.add_lib(lib_name, lib);
+                    })
+                });
+            resp_tx.send(result).unwrap();
         }
     }
 }

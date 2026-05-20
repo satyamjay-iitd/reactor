@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use serde_json::Value;
 
 pub trait CodeGenerator {
+    type Error: std::error::Error;
+
     /// Generates rust code for a given operator.
     ///
     /// Specification of the generated rust code:-
@@ -18,5 +20,5 @@ pub trait CodeGenerator {
     /// A tuple containing:
     /// - The generated code as a `String`.
     /// - Cargo.toml for the generated code.
-    fn generate(&self, args: HashMap<String, Value>) -> (String, String);
+    fn generate(&self, args: HashMap<String, Value>) -> Result<(String, String), Self::Error>;
 }
