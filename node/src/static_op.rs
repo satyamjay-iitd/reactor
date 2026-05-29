@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use tokio::sync::mpsc::{Sender, channel, unbounded_channel};
 use tracing::info;
 
-pub async fn node_controller(node_port: u16, operator_dir: PathBuf) {
+pub async fn node_controller(node_port: u16, operator_dir: PathBuf, extension: impl Into<crate::NodeExtension>) {
     use tracing::info_span;
 
     let span = info_span!("init_node_controller");
@@ -18,7 +18,7 @@ pub async fn node_controller(node_port: u16, operator_dir: PathBuf) {
 
     let (job_control_tx, mut job_control_rx) = unbounded_channel();
 
-    let server_handle = tokio::spawn(webserver(job_control_tx, node_port));
+    let server_handle = tokio::spawn(webserver(job_control_tx, node_port, extension.into()));
     info!(parent: &span, msg="spawned_http_server", port=node_port);
 
     let actor_control_loop = tokio::spawn(async move {
@@ -79,6 +79,6 @@ pub(crate) async fn handle_job_req(
         #[cfg(feature = "chaos")]
         JobControllerReq::ChaosMsg(msg) => crate::handle_chaos(msg, local_actors).await,
         #[cfg(feature = "dynop")]
-        JobControllerReq::RegisterOps { .. } => panic!("Static Node cannot compile operators"),
+        JobControllerReq::CompileOps { .. } => panic!("Static Node cannot compile operators"),
     }
 }

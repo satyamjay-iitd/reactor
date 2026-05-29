@@ -20,6 +20,40 @@ pub mod lib_builder;
 mod static_op;
 pub use static_op::node_controller;
 
+pub use axum::Router;
+
+/// Bundles extra routes and an OpenAPI spec to merge into the node's built-in swagger docs.
+pub struct NodeExtension {
+    pub router: Router,
+    #[cfg(feature = "swagger")]
+    pub openapi: utoipa::openapi::OpenApi,
+}
+
+impl NodeExtension {
+    #[cfg(not(feature = "swagger"))]
+    pub fn new(router: Router) -> Self {
+        Self { router }
+    }
+    #[cfg(feature = "swagger")]
+    pub fn new(router: Router, openapi: utoipa::openapi::OpenApi) -> Self {
+        Self { router, openapi }
+    }
+
+    #[cfg(not(feature = "swagger"))]
+    pub fn empty() -> Self {
+        Self {
+            router: Router::new(),
+        }
+    }
+    #[cfg(feature = "swagger")]
+    pub fn empty() -> Self {
+        Self {
+            router: Router::new(),
+            openapi: utoipa::openapi::OpenApiBuilder::new().build(),
+        }
+    }
+}
+
 #[cfg(feature = "dynop")]
 mod dyn_op;
 #[cfg(feature = "dynop")]
@@ -101,7 +135,7 @@ pub(crate) enum ChaosMsg {
 /// Global Controller
 pub(crate) enum JobControllerReq {
     #[cfg(feature = "dynop")]
-    RegisterOps {
+    CompileOps {
         lib_name: String,
         args: HashMap<String, Value>,
         resp_tx: oneshot::Sender<Result<(), crate::lib_builder::BuildError>>,
@@ -165,30 +199,23 @@ pub(crate) async fn handle_spawnactor(
     info!(target: "serving spawn actor", addr, op_name, lib_name, ?payload);
     let (control_tx, control_rx) = channel(20);
 
-    let lib = op_lib.get_lib(&lib_name);
-    unsafe {
-        use reactor_actor::ActorSpawnCB;
+    use reactor_actor::ActorSpawnCB;
 
-        let shared_logger: libloading::Symbol<SetupSharedLogger> =
-            lib.get(b"setup_shared_logger_ref").unwrap();
-        let logger = SharedLogger::new();
-        shared_logger(logger);
-        let op: libloading::Symbol<ActorSpawnCB> = lib.get(op_name.as_bytes()).unwrap();
-        op(
-            RuntimeCtx::new(
-                addr.clone().leak(),
-                NodeComm::new(control_rx, actor_control_tx.clone()),
-            ),
-            payload,
-        );
-        resp_tx.send(Some(SpawnResult { port })).unwrap();
-        control_tx
-            .send(ControlInst::StartTcpRecv(port))
-            .await
-            .unwrap();
-        info!(target: "actor spawned", port);
-        local_actors.insert(addr, LocalActor { handle: control_tx });
-    }
+    let op: libloading::Symbol<ActorSpawnCB> = op_lib.get_op(lib_name, op_name);
+    op(
+        RuntimeCtx::new(
+            addr.clone().leak(),
+            NodeComm::new(control_rx, actor_control_tx.clone()),
+        ),
+        payload,
+    );
+    resp_tx.send(Some(SpawnResult { port })).unwrap();
+    control_tx
+        .send(ControlInst::StartTcpRecv(port))
+        .await
+        .unwrap();
+    info!(target: "actor spawned", port);
+    local_actors.insert(addr, LocalActor { handle: control_tx });
 }
 
 #[cfg(feature = "chaos")]

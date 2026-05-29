@@ -43,7 +43,7 @@ async fn handle_job_req<CG: CodeGenerator + Send + Sync + 'static>(
         }
         #[cfg(feature = "chaos")]
         JobControllerReq::ChaosMsg(msg) => crate::handle_chaos(msg, local_actors).await,
-        JobControllerReq::RegisterOps {
+        JobControllerReq::CompileOps {
             lib_name,
             args,
             resp_tx,
@@ -66,6 +66,7 @@ pub async fn node_controller_cg<CG: CodeGenerator + Send + Sync + 'static>(
     operator_dir: PathBuf,
     code_gen: CG,
     node_port: u16,
+    extension: crate::NodeExtension,
 ) {
     use tracing::info_span;
 
@@ -74,7 +75,7 @@ pub async fn node_controller_cg<CG: CodeGenerator + Send + Sync + 'static>(
 
     let (job_control_tx, mut job_control_rx) = unbounded_channel();
 
-    let server_handle = tokio::spawn(webserver(job_control_tx, node_port));
+    let server_handle = tokio::spawn(webserver(job_control_tx, node_port, extension.into()));
     info!(parent: &span, msg="spawned_http_server", port=node_port);
 
     let control_loop = tokio::spawn(async move {
