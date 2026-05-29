@@ -65,9 +65,11 @@ pub struct Cli {
 struct PingPongCodeGen;
 
 impl CodeGenerator for PingPongCodeGen {
-    fn generate(&self, args: std::collections::HashMap<String, Value>) -> (String, String) {
+    type Error = std::convert::Infallible;
+
+    fn generate(&self, _args: std::collections::HashMap<String, Value>) -> Result<(String, String), Self::Error> {
         let template = LibTemplate {};
-        (template.render().expect(""), CARGO_TOML.to_string())
+        Ok((template.render().expect(""), CARGO_TOML.to_string()))
     }
 }
 
@@ -89,7 +91,7 @@ mod tests {
     #[test]
     fn test_codegen() {
         let cg = PingPongCodeGen {};
-        let (code, deps) = cg.generate(std::collections::HashMap::new());
+        let (code, deps) = cg.generate(std::collections::HashMap::new()).unwrap();
         let lib = LibBuilder::build(code, deps).unwrap();
 
     }

@@ -2,7 +2,7 @@
 //! node_controller logic
 
 use clap::Parser;
-use reactor_node::node_controller;
+use reactor_node::{NodeExtension, node_controller};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -31,5 +31,5 @@ async fn main() {
         Builder::new().filter_level(LevelFilter::Info).init();
     }
 
-    node_controller(cli.port, cli.dir).await;
+    node_controller(cli.port, cli.dir, NodeExtension::empty()).await;
 }
