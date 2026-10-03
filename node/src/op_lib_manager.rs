@@ -33,6 +33,10 @@ impl OpLibrary {
             .0
     }
 
+    pub(crate) fn has_lib(&self, name: &str) -> bool {
+        self.container.contains_key(name)
+    }
+
     pub(crate) fn num_libs(&self) -> usize {
         self.container.len()
     }

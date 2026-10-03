@@ -76,8 +76,9 @@ async fn compile_lib(
             })
             .unwrap();
         match rx.await.unwrap() {
-            Ok(()) => (axum::http::StatusCode::CREATED, String::new()),
-            Err(e) => (axum::http::StatusCode::BAD_REQUEST, e.to_string()),
+            Ok(true)  => (axum::http::StatusCode::CREATED, String::new()),
+            Ok(false) => (axum::http::StatusCode::OK, String::new()),
+            Err(e)    => (axum::http::StatusCode::BAD_REQUEST, e.to_string()),
         }
     }
     #[cfg(not(feature = "dynop"))]
@@ -566,5 +567,6 @@ pub async fn webserver(
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}"))
         .await
         .unwrap();
+    println!("\nWill Now Listen on 0.0.0.0:{port}");
     axum::serve(listener, app).await.unwrap();
 }

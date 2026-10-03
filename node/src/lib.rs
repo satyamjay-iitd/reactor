@@ -138,7 +138,8 @@ pub(crate) enum JobControllerReq {
     CompileOps {
         lib_name: String,
         args: HashMap<String, Value>,
-        resp_tx: oneshot::Sender<Result<(), crate::lib_builder::BuildError>>,
+        /// `true` = freshly compiled, `false` = already up-to-date (skipped)
+        resp_tx: oneshot::Sender<Result<bool, crate::lib_builder::BuildError>>,
     },
     ActorLifeCycle(ActorLifeCycle),
     #[cfg(feature = "chaos")]

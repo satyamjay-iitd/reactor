@@ -13,12 +13,16 @@ pub trait CodeGenerator {
     /// 2. Generated Cargo.toml must generate the library as cdylib.
     ///
     /// # Parameters
-    /// - `op_name`: The name of the operator for which code should be generated.
+    /// - `lib_name`: The name of the operator for which code should be generated.
     /// - `args`: A map of additional arguments (as key-value pairs) to customize code generation.
     ///
     /// # Returns
     /// A tuple containing:
     /// - The generated code as a `String`.
     /// - Cargo.toml for the generated code.
-    fn generate(&self, args: HashMap<String, Value>) -> Result<(String, String), Self::Error>;
+    fn generate(
+        &self,
+        lib_name: &str,
+        args: HashMap<String, Value>,
+    ) -> Result<(String, String), Self::Error>;
 }

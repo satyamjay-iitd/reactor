@@ -49,15 +49,35 @@ async fn handle_job_req<CG: CodeGenerator + Send + Sync + 'static>(
             resp_tx,
         } => {
             info!("[Node] Registering Op from lib: {lib_name}");
-            let result = code_gen
-                .generate(args)
-                .map_err(|e| BuildError::CodegenFailed(e.to_string()))
-                .and_then(|(code, cargo_toml)| {
-                    LibBuilder::build(code, cargo_toml).map(|lib| {
-                        op_lib.add_lib(lib_name, lib);
-                    })
-                });
-            resp_tx.send(result).unwrap();
+
+            // Use a stable, named build directory so the metadata and the .so
+            // always live at the same path across invocations.
+            let build_dir = std::env::temp_dir()
+                .join("streamary_builds")
+                .join(&lib_name);
+            let meta_path = build_dir.join("metadata.json");
+            let args_json = serde_json::to_string(&args).unwrap_or_default();
+
+            let already_compiled = op_lib.has_lib(&lib_name)
+                && std::fs::read_to_string(&meta_path)
+                    .map(|cached| cached == args_json)
+                    .unwrap_or(false);
+
+            if already_compiled {
+                info!("[Node] Library {lib_name} already compiled with same args, skipping");
+                resp_tx.send(Ok(false)).unwrap();
+            } else {
+                let result = code_gen
+                    .generate(&lib_name, args)
+                    .map_err(|e| BuildError::CodegenFailed(e.to_string()))
+                    .and_then(|(code, cargo_toml)| {
+                        LibBuilder::build_named(code, cargo_toml, &build_dir).map(|lib| {
+                            op_lib.add_lib(lib_name.clone(), lib);
+                            let _ = std::fs::write(&meta_path, &args_json);
+                        })
+                    });
+                resp_tx.send(result.map(|_| true)).unwrap();
+            }
         }
     }
 }

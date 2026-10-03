@@ -22,7 +22,10 @@ pub enum BuildError {
 }
 
 impl LibBuilder {
-    pub fn build(code: String, deps: String) -> Result<Library, BuildError> {
+    /// Build into an explicit directory instead of a randomly-named temp dir.
+    /// The directory is created if it does not exist and persists after the call,
+    /// so subsequent compilations reuse cargo’s incremental build cache.
+    pub fn build_named(code: String, deps: String, build_dir: &std::path::Path) -> Result<Library, BuildError> {
         let cargo_manifest = Manifest::from_str(&deps).map_err(|_| BuildError::InvalidCargoToml)?;
         let crate_type = cargo_manifest
             .lib
@@ -40,32 +43,19 @@ impl LibBuilder {
             .name
             .ok_or(BuildError::InvalidCargoToml)?;
 
-        // Create a temporary directory for the crate
-        let dir = TempDir::new()?;
-        let dir_path = dir.path();
+        fs::create_dir_all(build_dir.join("src"))?;
+        fs::write(build_dir.join("Cargo.toml"), deps)?;
+        fs::write(build_dir.join("src").join("lib.rs"), code)?;
 
-        // Write Cargo.toml
-        fs::write(dir_path.join("Cargo.toml"), deps)?;
-
-        // Write src/lib.rs
-        let src_path = dir_path.join("src");
-        fs::create_dir_all(&src_path)?;
-        fs::write(src_path.join("lib.rs"), code)?;
-
-        // Build with cargo
         let status = Command::new("cargo")
             .args(["build", "--release"])
-            // .args(["build", "--offline", "--release"])
-            .current_dir(dir_path)
+            .current_dir(build_dir)
             .status()
             .map_err(BuildError::Io)?;
 
         if !status.success() {
             return Err(BuildError::BuildFailed);
         }
-
-        // Determine the path to the compiled library
-        let target_dir = dir_path.join("target").join("release");
 
         let lib_path = {
             #[cfg(target_os = "linux")]
@@ -75,15 +65,18 @@ impl LibBuilder {
             #[cfg(target_os = "windows")]
             let name = format!("lib{}.dll", library_name);
 
-            target_dir.join(name)
+            build_dir.join("target").join("release").join(name)
         };
 
-        // Load the library using libloading
         let lib = unsafe { Library::new(&lib_path).map_err(|_| BuildError::LibraryLoadFailed)? };
+        Ok(lib)
+    }
 
-        // We don’t return the TempDir because dropping it would delete the .so
+    pub fn build(code: String, deps: String) -> Result<Library, BuildError> {
+        let dir = TempDir::new()?;
+        let dir_path = dir.path().to_path_buf();
+        let lib = Self::build_named(code, deps, &dir_path)?;
         std::mem::forget(dir);
-
         Ok(lib)
     }
 }
