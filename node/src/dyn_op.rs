@@ -2,6 +2,7 @@
 use op_lib_manager::OpLibrary;
 use reactor_actor::ControlReq;
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use tokio::sync::mpsc::{Sender, channel, unbounded_channel};
 use tracing::info;
@@ -26,7 +27,7 @@ async fn handle_job_req<CG: CodeGenerator + Send + Sync + 'static>(
     local_actors: &mut HashMap<String, LocalActor>,
     remote_actors: &mut HashMap<ActorAddr, RemoteActor>,
     actor_contrl_tx: &Sender<ControlReq>,
-    port: u16,
+    data_addr: SocketAddr,
     code_gen: &CG,
 ) {
     match req {
@@ -37,7 +38,7 @@ async fn handle_job_req<CG: CodeGenerator + Send + Sync + 'static>(
                 actor_contrl_tx,
                 remote_actors,
                 local_actors,
-                port,
+                data_addr,
             )
             .await
         }
@@ -99,18 +100,20 @@ async fn handle_job_req<CG: CodeGenerator + Send + Sync + 'static>(
 pub async fn node_controller_cg<CG: CodeGenerator + Send + Sync + 'static>(
     operator_dir: PathBuf,
     code_gen: CG,
-    node_port: u16,
+    config: crate::NodeConfig,
     extension: crate::NodeExtension,
-) {
+) -> std::io::Result<()> {
     use tracing::info_span;
 
+    let listener = rpc::listen(&config).await?;
+    let bind = config.bind;
     let span = info_span!("init_node_controller");
     let mut ops = span.in_scope(|| crate::load_ops(operator_dir));
 
     let (job_control_tx, mut job_control_rx) = unbounded_channel();
 
-    let server_handle = tokio::spawn(webserver(job_control_tx, node_port, extension.into()));
-    info!(parent: &span, msg="spawned_http_server", port=node_port);
+    let server_handle = tokio::spawn(webserver(job_control_tx, listener, config, extension));
+    info!(parent: &span, msg="spawned_http_server");
 
     let control_loop = tokio::spawn(async move {
         let mut local_actors: HashMap<ActorAddr, LocalActor> = HashMap::new();
@@ -130,7 +133,7 @@ pub async fn node_controller_cg<CG: CodeGenerator + Send + Sync + 'static>(
                 req = job_control_rx.recv() => {
                     match req {
                         Some(req) => {
-                            handle_job_req(req, &mut ops, &mut local_actors, &mut remote_actors, &actor_control_tx, actor_port, &code_gen).await;
+                            handle_job_req(req, &mut ops, &mut local_actors, &mut remote_actors, &actor_control_tx, SocketAddr::new(bind, actor_port), &code_gen).await;
                             actor_port += 1;
                         },
                         None => break,
@@ -143,4 +146,5 @@ pub async fn node_controller_cg<CG: CodeGenerator + Send + Sync + 'static>(
     control_loop.await.unwrap();
 
     log::info!("[Node] Controller Ended");
+    Ok(())
 }

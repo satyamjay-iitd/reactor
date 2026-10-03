@@ -59,8 +59,13 @@ mod dyn_op;
 #[cfg(feature = "dynop")]
 pub use dyn_op::node_controller_cg;
 
+mod config;
 mod op_lib_manager;
 mod rpc;
+
+pub use config::NodeConfig;
+#[cfg(feature = "cli")]
+pub use config::NodeArgs;
 
 pub type NodeAddr = &'static str;
 // pub type ActorSpawnCB = fn(RuntimeCtx, HashMap<String, serde_json::Value>);
@@ -206,7 +211,7 @@ pub(crate) async fn handle_spawnactor(
     op_lib: &OpLibrary,
     actor_control_tx: &Sender<ControlReq>,
     local_actors: &mut HashMap<ActorAddr, LocalActor>,
-    port: u16,
+    data_addr: SocketAddr,
 ) {
     let SpawnActor {
         addr,
@@ -216,9 +221,9 @@ pub(crate) async fn handle_spawnactor(
         payload,
     } = req;
     info!(target: "serving spawn actor", addr, op_name, lib_name, ?payload);
-    let result = spawn_actor(&addr, &lib_name, &op_name, payload, op_lib, actor_control_tx, local_actors, port).await;
+    let result = spawn_actor(&addr, &lib_name, &op_name, payload, op_lib, actor_control_tx, local_actors, data_addr).await;
     match &result {
-        Ok(_) => info!(target: "actor spawned", port),
+        Ok(_) => info!(target: "actor spawned", %data_addr),
         Err(e) => error!(target: "spawn actor failed", addr, error = %e),
     }
     // the requester may have gone away
@@ -234,7 +239,7 @@ async fn spawn_actor(
     op_lib: &OpLibrary,
     actor_control_tx: &Sender<ControlReq>,
     local_actors: &mut HashMap<ActorAddr, LocalActor>,
-    port: u16,
+    data_addr: SocketAddr,
 ) -> Result<SpawnResult, SpawnError> {
     if local_actors.contains_key(addr) {
         return Err(SpawnError::ActorExists(addr.to_string()));
@@ -248,14 +253,14 @@ async fn spawn_actor(
     op(ctx, payload)
         .map_err(|message| SpawnError::OperatorFailed { op: op_name.to_string(), message })?;
     control_tx
-        .send(ControlInst::StartTcpRecv(port))
+        .send(ControlInst::StartTcpRecv(data_addr))
         .await
         .map_err(|_| SpawnError::OperatorFailed {
             op: op_name.to_string(),
             message: "the actor exited while starting".to_string(),
         })?;
     local_actors.insert(addr.to_string(), LocalActor { handle: control_tx });
-    Ok(SpawnResult { port })
+    Ok(SpawnResult { port: data_addr.port() })
 }
 
 /// Applies a fault-injection setting to a local actor; `false` if there is no such actor.
@@ -296,11 +301,11 @@ async fn handle_actor_lc(
     actor_control_tx: &Sender<ControlReq>,
     remote_actors: &mut HashMap<ActorAddr, RemoteActor>,
     local_actors: &mut HashMap<ActorAddr, LocalActor>,
-    port: u16,
+    data_addr: SocketAddr,
 ) {
     match lc {
         ActorLifeCycle::SpawnActor(req) => {
-            handle_spawnactor(req, op_lib, actor_control_tx, local_actors, port).await;
+            handle_spawnactor(req, op_lib, actor_control_tx, local_actors, data_addr).await;
         }
         ActorLifeCycle::RemoteActorAdded { addr, sock_addr } => {
             info!(target: "serving remote actor added", addr, ?sock_addr);
@@ -406,7 +411,7 @@ mod tests {
             resp_tx,
             payload: HashMap::new(),
         };
-        handle_spawnactor(req, &OpLibrary::default(), &actor_control_tx, local_actors, 6000).await;
+        handle_spawnactor(req, &OpLibrary::default(), &actor_control_tx, local_actors, "127.0.0.1:6000".parse().unwrap()).await;
         resp_rx.await.expect("the controller replies")
     }
 
@@ -434,7 +439,7 @@ mod tests {
         for (name, expected) in [("ghost", false), ("a", true), ("a", false)] {
             let (resp_tx, resp_rx) = oneshot::channel();
             let lc = ActorLifeCycle::StopActor { addr: name.to_string(), resp_tx };
-            handle_actor_lc(lc, &OpLibrary::default(), &actor_control_tx, &mut remote_actors, &mut local_actors, 6000)
+            handle_actor_lc(lc, &OpLibrary::default(), &actor_control_tx, &mut remote_actors, &mut local_actors, "127.0.0.1:6000".parse().unwrap())
                 .await;
             assert_eq!(resp_rx.await.unwrap(), expected, "stop {name}");
         }

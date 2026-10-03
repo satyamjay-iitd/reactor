@@ -7,9 +7,10 @@ use std::{
 
 use axum::{
     Json, Router,
-    body::Bytes,
+    body::{Body, Bytes},
     extract::{MatchedPath, State},
-    http::{HeaderMap, Request, StatusCode, header},
+    http::{HeaderMap, Method, Request, StatusCode, header},
+    middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
@@ -17,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
 use tower_http::catch_panic::CatchPanicLayer;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::{classify::ServerErrorsFailureClass, trace::TraceLayer};
 use tracing::{Span, info_span};
 #[cfg(feature = "swagger")]
@@ -27,7 +28,7 @@ use utoipa_swagger_ui::SwaggerUi;
 
 #[cfg(feature = "chaos")]
 use crate::ChaosMsg;
-use crate::{ActorLifeCycle, JobControllerReq, SpawnActor, SpawnError};
+use crate::{ActorLifeCycle, JobControllerReq, NodeConfig, SpawnActor, SpawnError};
 
 #[derive(Clone)]
 struct AppState {
@@ -484,11 +485,44 @@ async fn unset_msg_delay(State(_state): State<Arc<AppState>>, Json(_disable_dela
 )]
 struct ApiDoc;
 
+/// Checks the configuration and binds the API's listener.
+pub(crate) async fn listen(config: &NodeConfig) -> std::io::Result<tokio::net::TcpListener> {
+    config
+        .validate()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
+    let addr = SocketAddr::new(config.bind, config.port);
+    let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| {
+        std::io::Error::new(e.kind(), format!("cannot listen on {addr}: {e}"))
+    })?;
+    let auth = if config.auth_token.is_some() { "bearer token required" } else { "no auth" };
+    println!("\nWill Now Listen on {addr} ({auth})");
+    Ok(listener)
+}
+
+/// Answers 401 unless the request carries the node's token.
+async fn require_token(
+    State(config): State<Arc<NodeConfig>>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    if config.authorized(request.headers().get(header::AUTHORIZATION)) {
+        next.run(request).await
+    } else {
+        let mut response = error(StatusCode::UNAUTHORIZED, "missing or wrong auth token");
+        response
+            .headers_mut()
+            .insert(header::WWW_AUTHENTICATE, header::HeaderValue::from_static("Bearer"));
+        response
+    }
+}
+
 pub async fn webserver(
     job_control_tx: UnboundedSender<JobControllerReq>,
-    port: u16,
+    listener: tokio::net::TcpListener,
+    config: NodeConfig,
     extension: crate::NodeExtension,
 ) {
+    let config = Arc::new(config);
     let state = Arc::new(AppState { tx: job_control_tx });
     let app = Router::new()
         // compile
@@ -508,14 +542,19 @@ pub async fn webserver(
         .route("/unset_msg_delay", post(unset_msg_delay))
         .with_state(state)
         .merge(extension.router);
+    let cors_config = config.clone();
     let app = app
         // last resort: a panicking handler answers 500 instead of dropping the connection
         .layer(CatchPanicLayer::new())
+        // inside the CORS layer, which answers browsers' preflight requests without a token
+        .layer(middleware::from_fn_with_state(config, require_token))
         .layer(
             CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any),
+                .allow_origin(AllowOrigin::predicate(move |origin, _| {
+                    cors_config.origin_allowed(origin)
+                }))
+                .allow_methods([Method::GET, Method::POST])
+                .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION]),
         )
         .layer(
             TraceLayer::new_for_http()
@@ -551,14 +590,17 @@ pub async fn webserver(
 
     #[cfg(feature = "swagger")]
     let app = {
+        use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityRequirement, SecurityScheme};
         let mut doc = ApiDoc::openapi();
         doc.merge(extension.openapi);
+        // every route, including the extension's, sits behind `require_token`
+        doc.components.get_or_insert_with(Default::default).add_security_scheme(
+            "bearer_auth",
+            SecurityScheme::Http(HttpBuilder::new().scheme(HttpAuthScheme::Bearer).build()),
+        );
+        doc.security = Some(vec![SecurityRequirement::new("bearer_auth", Vec::<String>::new())]);
         app.merge(SwaggerUi::new("/docs").url("/api-doc/openapi.json", doc))
     };
 
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}"))
-        .await
-        .unwrap();
-    println!("\nWill Now Listen on 0.0.0.0:{port}");
     axum::serve(listener, app).await.unwrap();
 }

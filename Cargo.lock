@@ -1663,6 +1663,7 @@ dependencies = [
  "log",
  "ordered-float",
  "reactor-client",
+ "reqwest",
  "serde",
  "serde_json",
  "tempfile",
@@ -1693,6 +1694,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "cargo_toml",
+ "clap",
  "libloading",
  "log",
  "ordered-float",

@@ -28,9 +28,12 @@ tracing-shared = "0.1.5"
 utoipa = {version="5.3.1", features=["axum_extras"], optional = true}
 utoipa-swagger-ui = { version = "9", features = ["axum"], optional = true}
 cargo_toml = {version = "0.22", optional = true}
+clap = { version = "4", features = ["derive", "env"], optional = true }
 
 [features]
 default = ["swagger", "dynop", "chaos"]
 swagger = ["utoipa-swagger-ui", "utoipa"]
 dynop = ["cargo_toml"]
 chaos = []
+# `NodeArgs`: command-line flags for `NodeConfig`
+cli = ["dep:clap"]

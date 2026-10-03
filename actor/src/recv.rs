@@ -1,7 +1,7 @@
 use core::panic;
 use std::{
     collections::HashMap,
-    net::{Ipv4Addr, SocketAddr},
+    net::SocketAddr,
     sync::Arc,
     time::Duration,
 };
@@ -54,8 +54,8 @@ fn any_to_m<M: 'static>(msg: Box<dyn std::any::Any>) -> M {
 ///
 /// This function listens for `ControlMsg` commands on a controller channel and handles two cases:
 ///
-/// 1. **`StartTcpRecv(port)`**:
-///    Binds a non-blocking TCP socket on the given port. For every incoming connection, it:
+/// 1. **`StartTcpRecv(addr)`**:
+///    Binds a non-blocking TCP socket on the given address. For every incoming connection, it:
 ///     - Spawns a task (`parent_recv_subtask`) to receive bytes from the socket,
 ///     - Decodes messages using `decoder`,
 ///     - Passes messages to the processor via `p_tx`,
@@ -108,9 +108,9 @@ where
 
     while let Some(msg) = controller_rx.recv().await {
         match msg {
-            ControlInst::StartTcpRecv(port) => {
+            ControlInst::StartTcpRecv(addr) => {
                 tcp_server_set.spawn(tcp_recv(
-                    port,
+                    addr,
                     cancel_token.clone(),
                     decoder.clone(),
                     sub_decoders,
@@ -222,7 +222,7 @@ where
 }
 
 async fn tcp_recv<D, M, AR>(
-    port: u16,
+    addr: SocketAddr,
     cancel_token: CancellationToken,
     master_decoder: D,
     sub_decoders: Option<SubDecoderStore<M>>,
@@ -235,13 +235,13 @@ where
     D: Decoder<Item = M, Error = std::io::Error> + Clone + Send + Sync + 'static,
     AR: ActorRecv<IMsg = M> + 'static,
 {
-    let socket = Socket::new(Domain::IPV4, Type::STREAM, None)
+    let socket = Socket::new(Domain::for_address(addr), Type::STREAM, None)
         .map_err(|e| ActorError::RecieverErr(RecieverErr::TcpStartErr(e)))?;
     socket
         .set_reuse_port(true)
         .map_err(|e| ActorError::RecieverErr(RecieverErr::TcpStartErr(e)))?;
     socket
-        .bind(&SocketAddr::from((Ipv4Addr::new(0, 0, 0, 0), port)).into())
+        .bind(&addr.into())
         .map_err(|e| ActorError::RecieverErr(RecieverErr::TcpStartErr(e)))?;
     socket
         .listen(128)

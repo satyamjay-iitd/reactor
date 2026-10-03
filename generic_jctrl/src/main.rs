@@ -29,6 +29,10 @@ pub struct JobManifest {
 #[command(name = "Job Controller", about = "Run reactor Job controller")]
 pub struct Cli {
     pub job_manifest: PathBuf,
+
+    /// Token of the nodes' HTTP API (their --auth-token)
+    #[arg(long, env = "REACTOR_AUTH_TOKEN", hide_env_values = true)]
+    pub auth_token: Option<String>,
 }
 
 #[tokio::main]
@@ -39,7 +43,7 @@ async fn main() {
 
     let ops = job_manifest.ops;
     let pm = ManualPlacementManager::new(job_manifest.placement, job_manifest.global_chaos);
-    let mut jc = JobController::new(pm);
+    let mut jc = JobController::new(pm).with_auth_token(cli.auth_token);
 
     for node in job_manifest.nodes {
         jc.register_node(&node.name, node.hostname.leak(), node.port);
