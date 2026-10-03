@@ -553,7 +553,7 @@ pub async fn webserver(
                 .allow_origin(AllowOrigin::predicate(move |origin, _| {
                     cors_config.origin_allowed(origin)
                 }))
-                .allow_methods([Method::GET, Method::POST])
+                .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
                 .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION]),
         )
         .layer(
