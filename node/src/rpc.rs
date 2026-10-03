@@ -9,13 +9,14 @@ use axum::{
     Json, Router,
     body::Bytes,
     extract::{MatchedPath, State},
-    http::{HeaderMap, Request},
+    http::{HeaderMap, Request, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::{mpsc::UnboundedSender, oneshot};
+use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::{classify::ServerErrorsFailureClass, trace::TraceLayer};
 use tracing::{Span, info_span};
@@ -26,11 +27,52 @@ use utoipa_swagger_ui::SwaggerUi;
 
 #[cfg(feature = "chaos")]
 use crate::ChaosMsg;
-use crate::{ActorLifeCycle, JobControllerReq, SpawnActor};
+use crate::{ActorLifeCycle, JobControllerReq, SpawnActor, SpawnError};
 
 #[derive(Clone)]
 struct AppState {
     tx: UnboundedSender<JobControllerReq>,
+}
+
+impl AppState {
+    /// Sends a request to the node controller and waits for its reply.
+    async fn request<T>(
+        &self,
+        make_request: impl FnOnce(oneshot::Sender<T>) -> JobControllerReq,
+    ) -> Result<T, Response> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.tx.send(make_request(resp_tx)).map_err(|_| controller_unavailable())?;
+        resp_rx.await.map_err(|_| controller_unavailable())
+    }
+
+    /// Sends a request to the node controller without waiting for it to be handled.
+    fn notify(&self, request: JobControllerReq) -> Result<(), Response> {
+        self.tx.send(request).map_err(|_| controller_unavailable())
+    }
+}
+
+/// A plain-text error response.
+fn error(status: StatusCode, message: impl Into<String>) -> Response {
+    (status, message.into()).into_response()
+}
+
+fn controller_unavailable() -> Response {
+    error(StatusCode::INTERNAL_SERVER_ERROR, "the node controller is not running")
+}
+
+/// The node's host as the client addressed it (the `Host` header without its port).
+fn request_host(headers: &HeaderMap) -> String {
+    let Some(host) = headers.get(header::HOST).and_then(|h| h.to_str().ok()) else {
+        return String::new();
+    };
+    if let Some(bracketed) = host.strip_prefix('[') {
+        // IPv6: [::1]:8080
+        return bracketed.split(']').next().unwrap_or_default().to_string();
+    }
+    match host.rsplit_once(':') {
+        Some((name, port)) if port.chars().all(|c| c.is_ascii_digit()) => name.to_string(),
+        _ => host.to_string(),
+    }
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -54,35 +96,37 @@ pub(crate) struct CompilationArgs {
         content_type = "application/json"
     ),
     responses(
-        (status = 201, description = "Compilation successful"),
-        (status = 400, description = "Compilation Unsuccessful"),
+        (status = 201, description = "Compiled and loaded"),
+        (status = 200, description = "Already loaded, compiled from identical arguments; nothing to do"),
+        (status = 400, description = "Code generation or compilation failed (message in the body)"),
+        (status = 500, description = "The node controller is not running"),
         (status = 501, description = "Compilation Not Supported on this node")
     )
 ))]
 async fn compile_lib(
     State(_state): State<Arc<AppState>>,
     Json(_reg_arg): Json<CompilationArgs>,
-) -> impl IntoResponse {
+) -> Response {
     #[cfg(feature = "dynop")]
     {
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        _state
-            .clone()
-            .tx
-            .send(JobControllerReq::CompileOps {
+        use crate::lib_builder::BuildError;
+        let result = _state
+            .request(|resp_tx| JobControllerReq::CompileOps {
                 lib_name: _reg_arg.lib_name,
                 args: _reg_arg.args,
-                resp_tx: tx,
+                resp_tx,
             })
-            .unwrap();
-        match rx.await.unwrap() {
-            Ok(true)  => (axum::http::StatusCode::CREATED, String::new()),
-            Ok(false) => (axum::http::StatusCode::OK, String::new()),
-            Err(e)    => (axum::http::StatusCode::BAD_REQUEST, e.to_string()),
+            .await;
+        match result {
+            Ok(Ok(true)) => StatusCode::CREATED.into_response(),
+            Ok(Ok(false)) => StatusCode::OK.into_response(),
+            Ok(Err(e @ BuildError::CompilationNotSupported)) => error(StatusCode::NOT_IMPLEMENTED, e.to_string()),
+            Ok(Err(e)) => error(StatusCode::BAD_REQUEST, e.to_string()),
+            Err(response) => response,
         }
     }
     #[cfg(not(feature = "dynop"))]
-    axum::http::StatusCode::NOT_IMPLEMENTED
+    StatusCode::NOT_IMPLEMENTED.into_response()
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -123,36 +167,44 @@ struct StatusResponse {
         content_type = "application/json"
     ),
     responses(
-        (status = 201, description = "Start a new actor", body = RemoteActorInfo)
+        (status = 201, description = "Started; `hostname` is the node's host as addressed by the client", body = RemoteActorInfo),
+        (status = 400, description = "The operator failed to start, e.g. because of an invalid payload"),
+        (status = 404, description = "No such library or operator"),
+        (status = 409, description = "An actor with this name already exists"),
+        (status = 500, description = "The node controller is not running")
     )
 ))]
 async fn start_actor(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(args): Json<SpawnArgs>,
-) -> impl IntoResponse {
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    state
-        .clone()
-        .tx
-        .send(JobControllerReq::ActorLifeCycle(
-            ActorLifeCycle::SpawnActor(SpawnActor {
-                addr: args.actor_name.clone(),
-                resp_tx: tx,
+) -> Result<(StatusCode, Json<RemoteActorInfo>), Response> {
+    let name = args.actor_name.clone();
+    let spawned = state
+        .request(|resp_tx| {
+            JobControllerReq::ActorLifeCycle(ActorLifeCycle::SpawnActor(SpawnActor {
+                addr: args.actor_name,
+                resp_tx,
                 op_name: args.operator_name,
                 lib_name: args.lib_name,
                 payload: args.payload,
-            }),
-        ))
-        .unwrap();
-    let status = rx.await.unwrap();
-    assert!(status.is_some());
-
+            }))
+        })
+        .await?
+        .map_err(|e| {
+            let status = match e {
+                SpawnError::LibraryNotFound(_) | SpawnError::OperatorNotFound { .. } => StatusCode::NOT_FOUND,
+                SpawnError::ActorExists(_) => StatusCode::CONFLICT,
+                SpawnError::OperatorFailed { .. } => StatusCode::BAD_REQUEST,
+            };
+            error(status, e.to_string())
+        })?;
     let detail = RemoteActorInfo {
-        name: args.actor_name,
-        hostname: "".to_string(),
-        port: status.unwrap().port,
+        name,
+        hostname: request_host(&headers),
+        port: spawned.port,
     };
-    (axum::http::StatusCode::CREATED, Json(detail))
+    Ok((StatusCode::CREATED, Json(detail)))
 }
 
 #[cfg_attr(feature="swagger", utoipa::path(
@@ -165,25 +217,26 @@ async fn start_actor(
         content_type = "application/json"
     ),
     responses(
-        (status = 201, description = "Notify actor start on remote")
+        (status = 201, description = "Notify actor start on remote"),
+        (status = 400, description = "`hostname` is not an IP address"),
+        (status = 500, description = "The node controller is not running")
     )
 ))]
 async fn actor_added(
     State(state): State<Arc<AppState>>,
     Json(actor_info): Json<RemoteActorInfo>,
-) -> impl IntoResponse {
-    let remote_ip: IpAddr = actor_info.hostname.parse().unwrap();
-    state
-        .clone()
-        .tx
-        .send(JobControllerReq::ActorLifeCycle(
-            ActorLifeCycle::RemoteActorAdded {
-                addr: actor_info.name,
-                sock_addr: SocketAddr::new(remote_ip, actor_info.port),
-            },
-        ))
-        .unwrap();
-    (axum::http::StatusCode::CREATED, "Actor added!")
+) -> Result<(StatusCode, &'static str), Response> {
+    let remote_ip: IpAddr = actor_info.hostname.parse().map_err(|_| {
+        error(
+            StatusCode::BAD_REQUEST,
+            format!("hostname must be an IP address, got '{}'", actor_info.hostname),
+        )
+    })?;
+    state.notify(JobControllerReq::ActorLifeCycle(ActorLifeCycle::RemoteActorAdded {
+        addr: actor_info.name,
+        sock_addr: SocketAddr::new(remote_ip, actor_info.port),
+    }))?;
+    Ok((StatusCode::CREATED, "Actor added!"))
 }
 
 #[cfg_attr(feature="swagger", utoipa::path(
@@ -192,26 +245,24 @@ async fn actor_added(
     tag = "actor_lifecycle",
     responses(
         (status = 200, description = "Actor stop initiated"),
-        (status = 404, description = "Actor not found")
+        (status = 404, description = "Actor not found"),
+        (status = 500, description = "The node controller is not running")
     )
 ))]
-async fn stop_actor(
-    State(state): State<Arc<AppState>>,
-    Json(actor_addr): Json<String>,
-) -> impl IntoResponse {
-    state
-        .clone()
-        .tx
-        .send(JobControllerReq::ActorLifeCycle(
-            ActorLifeCycle::StopActor {
+async fn stop_actor(State(state): State<Arc<AppState>>, actor_addr: String) -> Response {
+    let found = state
+        .request(|resp_tx| {
+            JobControllerReq::ActorLifeCycle(ActorLifeCycle::StopActor {
                 addr: actor_addr.clone(),
-            },
-        ))
-        .unwrap();
-    (
-        axum::http::StatusCode::OK,
-        format!("Actor {} Stopped!", actor_addr),
-    )
+                resp_tx,
+            })
+        })
+        .await;
+    match found {
+        Ok(true) => (StatusCode::OK, format!("Actor {actor_addr} Stopped!")).into_response(),
+        Ok(false) => error(StatusCode::NOT_FOUND, format!("no actor named '{actor_addr}'")),
+        Err(response) => response,
+    }
 }
 
 #[cfg_attr(feature="swagger", utoipa::path(
@@ -219,18 +270,13 @@ async fn stop_actor(
     path = "/stop_all_actors",
     tag = "actor_lifecycle",
     responses(
-        (status = 200, description = "Actors stop initiated")
+        (status = 200, description = "Actors stop initiated"),
+        (status = 500, description = "The node controller is not running")
     )
 ))]
-async fn stop_all_actors(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    state
-        .clone()
-        .tx
-        .send(JobControllerReq::ActorLifeCycle(
-            ActorLifeCycle::StopAllActors,
-        ))
-        .unwrap();
-    (axum::http::StatusCode::OK, "Actors Stopped!")
+async fn stop_all_actors(State(state): State<Arc<AppState>>) -> Result<(StatusCode, &'static str), Response> {
+    state.notify(JobControllerReq::ActorLifeCycle(ActorLifeCycle::StopAllActors))?;
+    Ok((StatusCode::OK, "Actors Stopped!"))
 }
 
 #[cfg_attr(feature="swagger", utoipa::path(
@@ -238,25 +284,18 @@ async fn stop_all_actors(State(state): State<Arc<AppState>>) -> impl IntoRespons
     path = "/status",
     tag = "actor_lifecycle",
     responses(
-        (status = 200, description = "Status of the node", body = StatusResponse)
+        (status = 200, description = "Status of the node", body = StatusResponse),
+        (status = 500, description = "The node controller is not running")
     )
 ))]
-async fn get_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    state
-        .tx
-        .send(JobControllerReq::ActorLifeCycle(
-            ActorLifeCycle::GetStatus { resp_tx: tx },
-        ))
-        .unwrap();
-    let result = rx.await.unwrap();
-    (
-        axum::http::StatusCode::OK,
-        Json(StatusResponse {
-            actors: result.actors,
-            loaded_libs: result.loaded_libs,
-        }),
-    )
+async fn get_status(State(state): State<Arc<AppState>>) -> Result<Json<StatusResponse>, Response> {
+    let status = state
+        .request(|resp_tx| JobControllerReq::ActorLifeCycle(ActorLifeCycle::GetStatus { resp_tx }))
+        .await?;
+    Ok(Json(StatusResponse {
+        actors: status.actors,
+        loaded_libs: status.loaded_libs,
+    }))
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -294,33 +333,33 @@ pub struct DisableMsgDelayRequest {
     pub senders: Vec<String>,
 }
 
+/// Applies a fault-injection setting: 404 if the actor does not exist.
+#[cfg(feature = "chaos")]
+async fn apply_chaos(state: &AppState, actor_name: String, msg: ChaosMsg, done: &'static str) -> Response {
+    match state.request(|resp_tx| JobControllerReq::ChaosMsg { msg, resp_tx }).await {
+        Ok(true) => (StatusCode::OK, done).into_response(),
+        Ok(false) => error(StatusCode::NOT_FOUND, format!("no actor named '{actor_name}'")),
+        Err(response) => response,
+    }
+}
+
 #[cfg_attr(feature="swagger", utoipa::path(
     post,
     path = "/set_duplication",
     tag = "chaos",
     responses(
-        (status = 200, description = "Msg Duplication Config Applied")
+        (status = 200, description = "Msg Duplication Config Applied"),
+        (status = 404, description = "Actor not found"),
+        (status = 500, description = "The node controller is not running")
     )
 ))]
-async fn set_duplication(
-    State(_state): State<Arc<AppState>>,
-    Json(_dupl_request): Json<MsgDuplicationRequest>,
-) -> impl IntoResponse {
+async fn set_duplication(State(_state): State<Arc<AppState>>, Json(_dupl_request): Json<MsgDuplicationRequest>) -> Response {
     #[cfg(feature = "chaos")]
     {
-        _state
-            .clone()
-            .tx
-            .send(JobControllerReq::ChaosMsg(ChaosMsg::MsgDuplication {
-                actor_name: _dupl_request.actor_name,
-                factor: _dupl_request.factor,
-                probability: _dupl_request.probability,
-            }))
-            .unwrap();
-        (axum::http::StatusCode::OK, "Chaos Config Applied!")
+        apply_chaos(&_state, _dupl_request.actor_name.clone(), ChaosMsg::MsgDuplication { actor_name: _dupl_request.actor_name, factor: _dupl_request.factor, probability: _dupl_request.probability }, "Chaos Config Applied!").await
     }
     #[cfg(not(feature = "chaos"))]
-    axum::http::StatusCode::NOT_IMPLEMENTED
+    StatusCode::NOT_IMPLEMENTED.into_response()
 }
 
 #[cfg_attr(feature="swagger", utoipa::path(
@@ -328,27 +367,18 @@ async fn set_duplication(
     path = "/set_msg_loss",
     tag = "chaos",
     responses(
-        (status = 200, description = "Msg Loss Config Applied")
+        (status = 200, description = "Msg Loss Config Applied"),
+        (status = 404, description = "Actor not found"),
+        (status = 500, description = "The node controller is not running")
     )
 ))]
-async fn set_msg_loss(
-    State(_state): State<Arc<AppState>>,
-    Json(_loss_request): Json<MsgLossRequest>,
-) -> impl IntoResponse {
+async fn set_msg_loss(State(_state): State<Arc<AppState>>, Json(_loss_request): Json<MsgLossRequest>) -> Response {
     #[cfg(feature = "chaos")]
     {
-        _state
-            .clone()
-            .tx
-            .send(JobControllerReq::ChaosMsg(ChaosMsg::MsgLoss {
-                actor_name: _loss_request.actor_name,
-                probability: _loss_request.probability,
-            }))
-            .unwrap();
-        (axum::http::StatusCode::OK, "Chaos Config Applied!")
+        apply_chaos(&_state, _loss_request.actor_name.clone(), ChaosMsg::MsgLoss { actor_name: _loss_request.actor_name, probability: _loss_request.probability }, "Chaos Config Applied!").await
     }
     #[cfg(not(feature = "chaos"))]
-    axum::http::StatusCode::NOT_IMPLEMENTED
+    StatusCode::NOT_IMPLEMENTED.into_response()
 }
 
 #[cfg_attr(feature="swagger", utoipa::path(
@@ -356,31 +386,18 @@ async fn set_msg_loss(
     path = "/set_msg_delay",
     tag = "chaos",
     responses(
-        (status = 200, description = "Msg Delay Config Applied")
+        (status = 200, description = "Msg Delay Config Applied"),
+        (status = 404, description = "Actor not found"),
+        (status = 500, description = "The node controller is not running")
     )
 ))]
-async fn set_msg_delay(
-    State(_state): State<Arc<AppState>>,
-    Json(_delay_request): Json<MsgDelayRequest>,
-) -> impl IntoResponse {
+async fn set_msg_delay(State(_state): State<Arc<AppState>>, Json(_delay_request): Json<MsgDelayRequest>) -> Response {
     #[cfg(feature = "chaos")]
     {
-        _state
-            .clone()
-            .tx
-            .send(JobControllerReq::ChaosMsg(ChaosMsg::MsgDelay {
-                actor_name: _delay_request.actor_name,
-                senders: _delay_request.senders,
-                delay_range_ms: (
-                    _delay_request.delay_range_start,
-                    _delay_request.delay_range_end,
-                ),
-            }))
-            .unwrap();
-        (axum::http::StatusCode::OK, "Chaos Config Applied!")
+        apply_chaos(&_state, _delay_request.actor_name.clone(), ChaosMsg::MsgDelay { actor_name: _delay_request.actor_name, senders: _delay_request.senders, delay_range_ms: (_delay_request.delay_range_start, _delay_request.delay_range_end) }, "Chaos Config Applied!").await
     }
     #[cfg(not(feature = "chaos"))]
-    axum::http::StatusCode::NOT_IMPLEMENTED
+    StatusCode::NOT_IMPLEMENTED.into_response()
 }
 
 #[cfg_attr(feature="swagger", utoipa::path(
@@ -388,28 +405,18 @@ async fn set_msg_delay(
     path = "/unset_msg_duplication",
     tag = "chaos",
     responses(
-        (status = 200, description = "Msg Duplication Config Removed")
+        (status = 200, description = "Msg Duplication Config Removed"),
+        (status = 404, description = "Actor not found"),
+        (status = 500, description = "The node controller is not running")
     )
 ))]
-async fn unset_msg_duplication(
-    State(_state): State<Arc<AppState>>,
-    Json(_actor_addr): Json<String>,
-) -> impl IntoResponse {
+async fn unset_msg_duplication(State(_state): State<Arc<AppState>>, _actor_addr: String) -> Response {
     #[cfg(feature = "chaos")]
     {
-        _state
-            .clone()
-            .tx
-            .send(JobControllerReq::ChaosMsg(
-                ChaosMsg::DisableMsgDuplication {
-                    actor_name: _actor_addr,
-                },
-            ))
-            .unwrap();
-        (axum::http::StatusCode::OK, "Chaos Config Removed!")
+        apply_chaos(&_state, _actor_addr.clone(), ChaosMsg::DisableMsgDuplication { actor_name: _actor_addr }, "Chaos Config Removed!").await
     }
     #[cfg(not(feature = "chaos"))]
-    axum::http::StatusCode::NOT_IMPLEMENTED
+    StatusCode::NOT_IMPLEMENTED.into_response()
 }
 
 #[cfg_attr(feature="swagger", utoipa::path(
@@ -417,26 +424,18 @@ async fn unset_msg_duplication(
     path = "/unset_msg_loss",
     tag = "chaos",
     responses(
-        (status = 200, description = "Msg Loss Config Removed")
+        (status = 200, description = "Msg Loss Config Removed"),
+        (status = 404, description = "Actor not found"),
+        (status = 500, description = "The node controller is not running")
     )
 ))]
-async fn unset_msg_loss(
-    State(_state): State<Arc<AppState>>,
-    Json(_actor_addr): Json<String>,
-) -> impl IntoResponse {
+async fn unset_msg_loss(State(_state): State<Arc<AppState>>, _actor_addr: String) -> Response {
     #[cfg(feature = "chaos")]
     {
-        _state
-            .clone()
-            .tx
-            .send(JobControllerReq::ChaosMsg(ChaosMsg::DisableMsgLoss {
-                actor_name: _actor_addr,
-            }))
-            .unwrap();
-        (axum::http::StatusCode::OK, "Chaos Config Removed!")
+        apply_chaos(&_state, _actor_addr.clone(), ChaosMsg::DisableMsgLoss { actor_name: _actor_addr }, "Chaos Config Removed!").await
     }
     #[cfg(not(feature = "chaos"))]
-    axum::http::StatusCode::NOT_IMPLEMENTED
+    StatusCode::NOT_IMPLEMENTED.into_response()
 }
 
 #[cfg_attr(feature="swagger", utoipa::path(
@@ -444,27 +443,18 @@ async fn unset_msg_loss(
     path = "/unset_msg_delay",
     tag = "chaos",
     responses(
-        (status = 200, description = "Msg Delay Config Removed")
+        (status = 200, description = "Msg Delay Config Removed"),
+        (status = 404, description = "Actor not found"),
+        (status = 500, description = "The node controller is not running")
     )
 ))]
-async fn unset_msg_delay(
-    State(_state): State<Arc<AppState>>,
-    Json(_disable_delay_request): Json<DisableMsgDelayRequest>,
-) -> impl IntoResponse {
+async fn unset_msg_delay(State(_state): State<Arc<AppState>>, Json(_disable_delay_request): Json<DisableMsgDelayRequest>) -> Response {
     #[cfg(feature = "chaos")]
     {
-        _state
-            .clone()
-            .tx
-            .send(JobControllerReq::ChaosMsg(ChaosMsg::DisableMsgDelay {
-                actor_name: _disable_delay_request.actor_name,
-                senders: _disable_delay_request.senders,
-            }))
-            .unwrap();
-        (axum::http::StatusCode::OK, "Chaos Config Removed!")
+        apply_chaos(&_state, _disable_delay_request.actor_name.clone(), ChaosMsg::DisableMsgDelay { actor_name: _disable_delay_request.actor_name, senders: _disable_delay_request.senders }, "Chaos Config Removed!").await
     }
     #[cfg(not(feature = "chaos"))]
-    axum::http::StatusCode::NOT_IMPLEMENTED
+    StatusCode::NOT_IMPLEMENTED.into_response()
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -519,6 +509,8 @@ pub async fn webserver(
         .with_state(state)
         .merge(extension.router);
     let app = app
+        // last resort: a panicking handler answers 500 instead of dropping the connection
+        .layer(CatchPanicLayer::new())
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)

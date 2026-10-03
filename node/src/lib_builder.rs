@@ -19,6 +19,9 @@ pub enum BuildError {
     LibraryLoadFailed,
     #[error("Code generation failed: {0}")]
     CodegenFailed(String),
+    /// The node was started without a code generator (static operators only).
+    #[error("This node cannot compile operators")]
+    CompilationNotSupported,
 }
 
 impl LibBuilder {

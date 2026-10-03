@@ -6,6 +6,7 @@ use bincode::{Decode, Encode};
 use err::ActorError;
 use futures::future::join_all;
 pub use inventory as __inventory;
+pub use serde_json as __serde_json;
 use reactor_channel::{ReactorChannelTx, reactor_channel};
 use recv::rx;
 use send::tx;
@@ -30,7 +31,29 @@ pub use reactor_macros::actor;
 
 use crate::codec::ErrWithMsg;
 
-pub type ActorSpawnCB = fn(RuntimeCtx, HashMap<String, serde_json::Value>);
+/// Starts an actor; `Err` carries the reason it could not start (e.g. an invalid payload).
+pub type ActorSpawnCB = fn(RuntimeCtx, HashMap<String, serde_json::Value>) -> Result<(), String>;
+
+/// Runs an actor's start-up code, turning a panic into an `Err` with its message.
+///
+/// An operator library loaded at runtime has its own copy of std, and its panics cannot unwind
+/// into the node (that aborts the process). Exported spawn functions therefore catch their own
+/// panics with this; `#[actor]` does so for the functions it wraps.
+pub fn catch_spawn(start: impl FnOnce()) -> Result<(), String> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(start))
+        .map_err(|panic| panic_message(panic.as_ref()))
+}
+
+/// The message of a caught panic.
+pub fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
+    if let Some(s) = panic.downcast_ref::<&str>() {
+        s.to_string()
+    } else if let Some(s) = panic.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "panicked".to_string()
+    }
+}
 
 pub struct ExportedFn {
     pub name: &'static str,

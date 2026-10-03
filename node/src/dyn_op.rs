@@ -42,7 +42,10 @@ async fn handle_job_req<CG: CodeGenerator + Send + Sync + 'static>(
             .await
         }
         #[cfg(feature = "chaos")]
-        JobControllerReq::ChaosMsg(msg) => crate::handle_chaos(msg, local_actors).await,
+        JobControllerReq::ChaosMsg { msg, resp_tx } => {
+            let found = crate::handle_chaos(msg, local_actors).await;
+            let _ = resp_tx.send(found);
+        }
         JobControllerReq::CompileOps {
             lib_name,
             args,
@@ -65,18 +68,29 @@ async fn handle_job_req<CG: CodeGenerator + Send + Sync + 'static>(
 
             if already_compiled {
                 info!("[Node] Library {lib_name} already compiled with same args, skipping");
-                resp_tx.send(Ok(false)).unwrap();
+                let _ = resp_tx.send(Ok(false));
             } else {
-                let result = code_gen
-                    .generate(&lib_name, args)
-                    .map_err(|e| BuildError::CodegenFailed(e.to_string()))
+                // A code generator may panic on unexpected arguments; contain it so the node
+                // controller keeps serving.
+                let generated: Result<(String, String), String> =
+                    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        code_gen.generate(&lib_name, args)
+                    })) {
+                        Ok(generated) => generated.map_err(|e| e.to_string()),
+                        Err(panic) => Err(format!(
+                            "the code generator panicked: {}",
+                            reactor_actor::panic_message(panic.as_ref())
+                        )),
+                    };
+                let result = generated
+                    .map_err(BuildError::CodegenFailed)
                     .and_then(|(code, cargo_toml)| {
                         LibBuilder::build_named(code, cargo_toml, &build_dir).map(|lib| {
                             op_lib.add_lib(lib_name.clone(), lib);
                             let _ = std::fs::write(&meta_path, &args_json);
                         })
                     });
-                resp_tx.send(result.map(|_| true)).unwrap();
+                let _ = resp_tx.send(result.map(|_| true));
             }
         }
     }

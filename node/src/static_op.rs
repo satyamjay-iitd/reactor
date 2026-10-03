@@ -77,8 +77,13 @@ pub(crate) async fn handle_job_req(
             .await
         }
         #[cfg(feature = "chaos")]
-        JobControllerReq::ChaosMsg(msg) => crate::handle_chaos(msg, local_actors).await,
+        JobControllerReq::ChaosMsg { msg, resp_tx } => {
+            let found = crate::handle_chaos(msg, local_actors).await;
+            let _ = resp_tx.send(found);
+        }
         #[cfg(feature = "dynop")]
-        JobControllerReq::CompileOps { .. } => panic!("Static Node cannot compile operators"),
+        JobControllerReq::CompileOps { resp_tx, .. } => {
+            let _ = resp_tx.send(Err(crate::lib_builder::BuildError::CompilationNotSupported));
+        }
     }
 }
