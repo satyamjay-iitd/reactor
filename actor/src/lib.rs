@@ -58,7 +58,7 @@ fn get_registered() -> Vec<String> {
         .collect()
 }
 
-static CHANNEL_SIZE: usize = 1 << 20;
+static CHANNEL_SIZE: usize = 1 << 1;
 /// Messages that can flow between the actors.
 pub trait Msg: Send + Sync + std::fmt::Debug + HasPriority + 'static + Clone {}
 
@@ -555,7 +555,7 @@ where
 {
     pub async fn run(mut self, ctx: RuntimeCtx) -> Result<(), ActorError> {
         // let my_addr = ctx.addr.to_string();
-        let (p2s_tx, p2s_rx) = mpsc::unbounded_channel::<(OM, &'static str)>();
+        let (p2s_tx, p2s_rx) = mpsc::channel::<(OM, &'static str)>(CHANNEL_SIZE);
         let (r2p_tx, mut r2p_rx) = reactor_channel::<R2PMsg<IM>>(self.num_prios, CHANNEL_SIZE);
 
         let (controller_rx, controller_tx) = ctx.node_comm.split();
@@ -584,80 +584,82 @@ where
 
         let addr = ctx.addr;
         let mut chaos_manager = chaos_manager::ChaosManager::new();
-        let proc_handle: JoinHandle<Result<(), ActorError>> =
-            tokio::task::spawn_blocking(move || -> Result<(), ActorError> {
-                tracing::info!("[ACTOR][{}] Processor Started", addr);
-                loop {
-                    match r2p_rx.recv() {
-                        Some(R2PMsg::Msg(m, origin)) => {
-                            // Dont apply chaos to messages comming from generator
-                            let chaos_out = if origin.is_empty() {
-                                vec![m]
-                            } else {
-                                chaos_manager.apply_chaos(m)
-                            };
-                            let chaos_out_len = chaos_out.len();
-                            if chaos_out_len > 1 {
-                                tracing::warn!(
-                                    "[ACTOR][{}] Message Duplicated {} times",
-                                    addr,
-                                    chaos_out_len
-                                );
-                            } else if chaos_out_len == 0 {
-                                tracing::warn!("[ACTOR][{}] Message Lost", addr);
-                            }
-                            for msg in chaos_out {
-                                let processed = processor.process(msg);
-                                for o in processed {
-                                    p2s_tx.send((o, origin)).map_err(|_| ActorError::P2SErr)?;
-                                }
-                            }
-                        }
-                        Some(R2PMsg::AddPrio(new_rx)) => {
-                            r2p_rx = r2p_rx.add_prio(new_rx);
-                        }
-                        Some(R2PMsg::RemoveLowPrio) => {
-                            r2p_rx = r2p_rx.remove_prio();
-                        }
-                        Some(R2PMsg::Exit) => {
-                            break;
-                        }
-                        Some(R2PMsg::SetMsgDuplication {
-                            factor,
-                            probability,
-                        }) => {
-                            tracing::info!(
-                                "[ACTOR][{}] Setting Msg Duplication: factor={}, probability={}",
+        let proc_handle: JoinHandle<Result<(), ActorError>> = tokio::task::spawn(async move {
+            tracing::info!("[ACTOR][{}] Processor Started", addr);
+            loop {
+                match r2p_rx.recv().await {
+                    Some(R2PMsg::Msg(m, origin)) => {
+                        // Dont apply chaos to messages comming from generator
+                        let chaos_out = if origin.is_empty() {
+                            vec![m]
+                        } else {
+                            chaos_manager.apply_chaos(m)
+                        };
+                        let chaos_out_len = chaos_out.len();
+                        if chaos_out_len > 1 {
+                            tracing::warn!(
+                                "[ACTOR][{}] Message Duplicated {} times",
                                 addr,
-                                factor,
-                                probability
+                                chaos_out_len
                             );
-                            chaos_manager.set_msg_duplication(factor, probability);
+                        } else if chaos_out_len == 0 {
+                            tracing::warn!("[ACTOR][{}] Message Lost", addr);
                         }
-                        Some(R2PMsg::SetMsgLoss { probability }) => {
-                            tracing::info!(
-                                "[ACTOR][{}] Setting Msg Loss: probability={}",
-                                addr,
-                                probability
-                            );
-                            chaos_manager.set_msg_loss(probability);
-                        }
-                        Some(R2PMsg::UnsetMsgLoss) => {
-                            tracing::info!("[ACTOR][{}] Unsetting Msg Loss", addr);
-                            chaos_manager.unset_msg_loss();
-                        }
-                        Some(R2PMsg::UnsetMsgDuplication) => {
-                            tracing::info!("[ACTOR][{}] Unsetting Msg Duplication", addr);
-                            chaos_manager.unset_msg_duplication();
-                        }
-                        None => {
-                            break;
+                        for msg in chaos_out {
+                            let processed = processor.process(msg);
+                            for o in processed {
+                                p2s_tx
+                                    .send((o, origin))
+                                    .await
+                                    .map_err(|_| ActorError::P2SErr)?;
+                            }
                         }
                     }
+                    Some(R2PMsg::AddPrio(new_rx)) => {
+                        r2p_rx = r2p_rx.add_prio(new_rx);
+                    }
+                    Some(R2PMsg::RemoveLowPrio) => {
+                        r2p_rx = r2p_rx.remove_prio();
+                    }
+                    Some(R2PMsg::Exit) => {
+                        break;
+                    }
+                    Some(R2PMsg::SetMsgDuplication {
+                        factor,
+                        probability,
+                    }) => {
+                        tracing::info!(
+                            "[ACTOR][{}] Setting Msg Duplication: factor={}, probability={}",
+                            addr,
+                            factor,
+                            probability
+                        );
+                        chaos_manager.set_msg_duplication(factor, probability);
+                    }
+                    Some(R2PMsg::SetMsgLoss { probability }) => {
+                        tracing::info!(
+                            "[ACTOR][{}] Setting Msg Loss: probability={}",
+                            addr,
+                            probability
+                        );
+                        chaos_manager.set_msg_loss(probability);
+                    }
+                    Some(R2PMsg::UnsetMsgLoss) => {
+                        tracing::info!("[ACTOR][{}] Unsetting Msg Loss", addr);
+                        chaos_manager.unset_msg_loss();
+                    }
+                    Some(R2PMsg::UnsetMsgDuplication) => {
+                        tracing::info!("[ACTOR][{}] Unsetting Msg Duplication", addr);
+                        chaos_manager.unset_msg_duplication();
+                    }
+                    None => {
+                        break;
+                    }
                 }
-                tracing::info!("[ACTOR][{}] Processor Ended", addr);
-                Ok(())
-            });
+            }
+            tracing::info!("[ACTOR][{}] Processor Ended", addr);
+            Ok(())
+        });
         let tx_handle = tokio::spawn(tx(
             ctx.addr,
             sender,
