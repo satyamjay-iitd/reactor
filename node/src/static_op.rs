@@ -25,7 +25,12 @@ pub async fn node_controller(
 
     let (job_control_tx, mut job_control_rx) = unbounded_channel();
 
-    let server_handle = tokio::spawn(webserver(job_control_tx, listener, config, extension.into()));
+    let server_handle = tokio::spawn(webserver(
+        job_control_tx,
+        listener,
+        config,
+        extension.into(),
+    ));
     info!(parent: &span, msg="spawned_http_server");
 
     let actor_control_loop = tokio::spawn(async move {
@@ -88,6 +93,14 @@ pub(crate) async fn handle_job_req(
         JobControllerReq::ChaosMsg { msg, resp_tx } => {
             let found = crate::handle_chaos(msg, local_actors).await;
             let _ = resp_tx.send(found);
+        }
+        #[cfg(feature = "dynop")]
+        JobControllerReq::CancelBuilds { resp_tx, .. } => {
+            let _ = resp_tx.send(Vec::new());
+        }
+        #[cfg(feature = "dynop")]
+        JobControllerReq::ClearBuildCache { resp_tx } => {
+            let _ = resp_tx.send(Err(crate::lib_builder::BuildError::CompilationNotSupported));
         }
         #[cfg(feature = "dynop")]
         JobControllerReq::CompileOps { resp_tx, .. } => {

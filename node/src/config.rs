@@ -130,15 +130,35 @@ mod tests {
     use super::*;
 
     fn with_token(token: &str) -> NodeConfig {
-        NodeConfig { auth_token: Some(token.to_string()), ..NodeConfig::local(8080) }
+        NodeConfig {
+            auth_token: Some(token.to_string()),
+            ..NodeConfig::local(8080)
+        }
     }
 
     #[test]
     fn network_addresses_need_a_token() {
-        let exposed = NodeConfig { bind: IpAddr::V4(Ipv4Addr::UNSPECIFIED), ..NodeConfig::local(8080) };
+        let exposed = NodeConfig {
+            bind: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+            ..NodeConfig::local(8080)
+        };
         assert!(exposed.validate().is_err());
-        assert!(NodeConfig { auth_token: Some("s3cret".into()), ..exposed.clone() }.validate().is_ok());
-        assert!(NodeConfig { auth_token: Some("".into()), ..exposed }.validate().is_err());
+        assert!(
+            NodeConfig {
+                auth_token: Some("s3cret".into()),
+                ..exposed.clone()
+            }
+            .validate()
+            .is_ok()
+        );
+        assert!(
+            NodeConfig {
+                auth_token: Some("".into()),
+                ..exposed
+            }
+            .validate()
+            .is_err()
+        );
         assert!(NodeConfig::local(8080).validate().is_ok());
     }
 
@@ -167,7 +187,10 @@ mod tests {
         assert!(!allowed("https://evil.example.com"));
         assert!(!allowed("http://localhost.evil.com"));
         assert!(!allowed("null"));
-        let bad = NodeConfig { allowed_origins: vec!["https://x.com/".into()], ..NodeConfig::local(1) };
+        let bad = NodeConfig {
+            allowed_origins: vec!["https://x.com/".into()],
+            ..NodeConfig::local(1)
+        };
         assert!(bad.validate().is_err());
     }
 }

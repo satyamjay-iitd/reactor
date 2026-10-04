@@ -1,10 +1,5 @@
 use core::panic;
-use std::{
-    collections::HashMap,
-    net::SocketAddr,
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use futures::StreamExt as _;
 use rand::{Rng, SeedableRng as _, rngs::SmallRng};

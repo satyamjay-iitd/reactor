@@ -1695,6 +1695,7 @@ dependencies = [
  "axum",
  "cargo_toml",
  "clap",
+ "libc",
  "libloading",
  "log",
  "ordered-float",

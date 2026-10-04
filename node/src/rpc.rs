@@ -8,11 +8,11 @@ use std::{
 use axum::{
     Json, Router,
     body::{Body, Bytes},
-    extract::{MatchedPath, State},
+    extract::{MatchedPath, Path, State},
     http::{HeaderMap, Method, Request, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{delete, get, post},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -42,7 +42,9 @@ impl AppState {
         make_request: impl FnOnce(oneshot::Sender<T>) -> JobControllerReq,
     ) -> Result<T, Response> {
         let (resp_tx, resp_rx) = oneshot::channel();
-        self.tx.send(make_request(resp_tx)).map_err(|_| controller_unavailable())?;
+        self.tx
+            .send(make_request(resp_tx))
+            .map_err(|_| controller_unavailable())?;
         resp_rx.await.map_err(|_| controller_unavailable())
     }
 
@@ -58,7 +60,10 @@ fn error(status: StatusCode, message: impl Into<String>) -> Response {
 }
 
 fn controller_unavailable() -> Response {
-    error(StatusCode::INTERNAL_SERVER_ERROR, "the node controller is not running")
+    error(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "the node controller is not running",
+    )
 }
 
 /// The node's host as the client addressed it (the `Host` header without its port).
@@ -89,7 +94,7 @@ pub(crate) struct CompilationArgs {
 
 #[cfg_attr(feature = "swagger", utoipa::path(
     post,
-    path = "/compile_lib",
+    path = "/builds",
     tag = "compile",
     request_body(
         content = CompilationArgs,
@@ -100,11 +105,13 @@ pub(crate) struct CompilationArgs {
         (status = 201, description = "Compiled and loaded"),
         (status = 200, description = "Already loaded, compiled from identical arguments; nothing to do"),
         (status = 400, description = "Code generation or compilation failed (message in the body)"),
+        (status = 409, description = "A library with this name is loaded (built from other arguments) or being built, \
+            or the build was cancelled"),
         (status = 500, description = "The node controller is not running"),
         (status = 501, description = "Compilation Not Supported on this node")
     )
 ))]
-async fn compile_lib(
+async fn build_lib(
     State(_state): State<Arc<AppState>>,
     Json(_reg_arg): Json<CompilationArgs>,
 ) -> Response {
@@ -121,8 +128,126 @@ async fn compile_lib(
         match result {
             Ok(Ok(true)) => StatusCode::CREATED.into_response(),
             Ok(Ok(false)) => StatusCode::OK.into_response(),
-            Ok(Err(e @ BuildError::CompilationNotSupported)) => error(StatusCode::NOT_IMPLEMENTED, e.to_string()),
+            Ok(Err(e @ BuildError::CompilationNotSupported)) => {
+                error(StatusCode::NOT_IMPLEMENTED, e.to_string())
+            }
+            Ok(Err(
+                e @ (BuildError::LoadedWithOtherArgs(_)
+                | BuildError::AlreadyBuilding(_)
+                | BuildError::Cancelled(_)),
+            )) => error(StatusCode::CONFLICT, e.to_string()),
             Ok(Err(e)) => error(StatusCode::BAD_REQUEST, e.to_string()),
+            Err(response) => response,
+        }
+    }
+    #[cfg(not(feature = "dynop"))]
+    StatusCode::NOT_IMPLEMENTED.into_response()
+}
+
+#[cfg_attr(feature = "swagger", derive(ToSchema))]
+#[derive(Serialize)]
+#[cfg_attr(not(feature = "dynop"), allow(dead_code))]
+pub(crate) struct CancelledBuilds {
+    /// The libraries whose builds were cancelled; their compile requests answer 409.
+    pub cancelled: Vec<String>,
+}
+
+#[cfg_attr(feature = "swagger", utoipa::path(
+    delete,
+    path = "/builds",
+    tag = "compile",
+    responses(
+        (status = 200, description = "Cancelled the builds in progress (killing the compiler)", body = CancelledBuilds),
+        (status = 500, description = "The node controller is not running"),
+    )
+))]
+async fn cancel_builds(State(state): State<Arc<AppState>>) -> Response {
+    cancel(&state, None).await
+}
+
+#[cfg_attr(feature = "swagger", utoipa::path(
+    delete,
+    path = "/builds/{lib_name}",
+    tag = "compile",
+    params(("lib_name" = String, Path, description = "The library being built")),
+    responses(
+        (status = 200, description = "Cancelled the library's build (killing the compiler)", body = CancelledBuilds),
+        (status = 404, description = "The library is not being built"),
+        (status = 500, description = "The node controller is not running"),
+    )
+))]
+async fn cancel_build(
+    State(state): State<Arc<AppState>>,
+    Path(lib_name): Path<String>,
+) -> Response {
+    cancel(&state, Some(lib_name)).await
+}
+
+async fn cancel(state: &AppState, lib_name: Option<String>) -> Response {
+    #[cfg(feature = "dynop")]
+    {
+        let specific = lib_name.clone();
+        match state
+            .request(|resp_tx| JobControllerReq::CancelBuilds { lib_name, resp_tx })
+            .await
+        {
+            Ok(cancelled) if cancelled.is_empty() && specific.is_some() => error(
+                StatusCode::NOT_FOUND,
+                format!("library '{}' is not being built", specific.unwrap()),
+            ),
+            Ok(cancelled) => Json(CancelledBuilds { cancelled }).into_response(),
+            Err(response) => response,
+        }
+    }
+    #[cfg(not(feature = "dynop"))]
+    Json(CancelledBuilds { cancelled: vec![] }).into_response()
+}
+
+#[cfg_attr(feature = "swagger", derive(ToSchema))]
+#[derive(Serialize)]
+#[cfg_attr(not(feature = "dynop"), allow(dead_code))]
+pub(crate) struct ClearedCache {
+    /// The compiled libraries that were unloaded; the next request for one compiles it again.
+    pub unloaded: Vec<String>,
+    /// Disk space the build directories took.
+    pub freed_bytes: u64,
+}
+
+#[cfg_attr(feature = "swagger", utoipa::path(
+    delete,
+    path = "/cache",
+    tag = "compile",
+    responses(
+        (status = 200, description = "Unloaded the compiled libraries and deleted their build directories. \
+            Their memory is released when the node restarts", body = ClearedCache),
+        (status = 409, description = "Actors are running on this node, or libraries are being built"),
+        (status = 500, description = "The directories could not be deleted, or the node controller is not running"),
+        (status = 501, description = "Compilation Not Supported on this node")
+    )
+))]
+async fn clear_build_cache(State(_state): State<Arc<AppState>>) -> Response {
+    #[cfg(feature = "dynop")]
+    {
+        use crate::lib_builder::BuildError;
+        match _state
+            .request(|resp_tx| JobControllerReq::ClearBuildCache { resp_tx })
+            .await
+        {
+            Ok(Ok(cleared)) => Json(ClearedCache {
+                unloaded: cleared.unloaded,
+                freed_bytes: cleared.freed_bytes,
+            })
+            .into_response(),
+            Ok(Err(e @ BuildError::CompilationNotSupported)) => {
+                error(StatusCode::NOT_IMPLEMENTED, e.to_string())
+            }
+            Ok(Err(e @ (BuildError::ActorsRunning(_) | BuildError::Building(_)))) => {
+                error(StatusCode::CONFLICT, e.to_string())
+            }
+            Ok(Err(e)) => error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("cannot delete the build cache: {e}"),
+            ),
             Err(response) => response,
         }
     }
@@ -194,7 +319,9 @@ async fn start_actor(
         .await?
         .map_err(|e| {
             let status = match e {
-                SpawnError::LibraryNotFound(_) | SpawnError::OperatorNotFound { .. } => StatusCode::NOT_FOUND,
+                SpawnError::LibraryNotFound(_) | SpawnError::OperatorNotFound { .. } => {
+                    StatusCode::NOT_FOUND
+                }
                 SpawnError::ActorExists(_) => StatusCode::CONFLICT,
                 SpawnError::OperatorFailed { .. } => StatusCode::BAD_REQUEST,
             };
@@ -230,27 +357,41 @@ async fn actor_added(
     let remote_ip: IpAddr = actor_info.hostname.parse().map_err(|_| {
         error(
             StatusCode::BAD_REQUEST,
-            format!("hostname must be an IP address, got '{}'", actor_info.hostname),
+            format!(
+                "hostname must be an IP address, got '{}'",
+                actor_info.hostname
+            ),
         )
     })?;
-    state.notify(JobControllerReq::ActorLifeCycle(ActorLifeCycle::RemoteActorAdded {
-        addr: actor_info.name,
-        sock_addr: SocketAddr::new(remote_ip, actor_info.port),
-    }))?;
+    state.notify(JobControllerReq::ActorLifeCycle(
+        ActorLifeCycle::RemoteActorAdded {
+            addr: actor_info.name,
+            sock_addr: SocketAddr::new(remote_ip, actor_info.port),
+        },
+    ))?;
     Ok((StatusCode::CREATED, "Actor added!"))
 }
 
-#[cfg_attr(feature="swagger", utoipa::path(
-    post,
-    path = "/stop_actor",
-    tag = "actor_lifecycle",
-    responses(
-        (status = 200, description = "Actor stop initiated"),
-        (status = 404, description = "Actor not found"),
-        (status = 500, description = "The node controller is not running")
+#[cfg_attr(
+    feature = "swagger",
+    utoipa::path(
+        post,
+        path = "/stop_actor/{actor_addr}",
+        tag = "actor_lifecycle",
+        params(
+            ("actor_addr" = String, Path, description = "Address of the actor to stop")
+        ),
+        responses(
+            (status = 200, description = "Actor stop initiated"),
+            (status = 404, description = "Actor not found"),
+            (status = 500, description = "The node controller is not running")
+        )
     )
-))]
-async fn stop_actor(State(state): State<Arc<AppState>>, actor_addr: String) -> Response {
+)]
+async fn stop_actor(
+    State(state): State<Arc<AppState>>,
+    Path(actor_addr): Path<String>,
+) -> Response {
     let found = state
         .request(|resp_tx| {
             JobControllerReq::ActorLifeCycle(ActorLifeCycle::StopActor {
@@ -259,9 +400,15 @@ async fn stop_actor(State(state): State<Arc<AppState>>, actor_addr: String) -> R
             })
         })
         .await;
+
     match found {
         Ok(true) => (StatusCode::OK, format!("Actor {actor_addr} Stopped!")).into_response(),
-        Ok(false) => error(StatusCode::NOT_FOUND, format!("no actor named '{actor_addr}'")),
+
+        Ok(false) => error(
+            StatusCode::NOT_FOUND,
+            format!("no actor named '{actor_addr}'"),
+        ),
+
         Err(response) => response,
     }
 }
@@ -275,8 +422,12 @@ async fn stop_actor(State(state): State<Arc<AppState>>, actor_addr: String) -> R
         (status = 500, description = "The node controller is not running")
     )
 ))]
-async fn stop_all_actors(State(state): State<Arc<AppState>>) -> Result<(StatusCode, &'static str), Response> {
-    state.notify(JobControllerReq::ActorLifeCycle(ActorLifeCycle::StopAllActors))?;
+async fn stop_all_actors(
+    State(state): State<Arc<AppState>>,
+) -> Result<(StatusCode, &'static str), Response> {
+    state.notify(JobControllerReq::ActorLifeCycle(
+        ActorLifeCycle::StopAllActors,
+    ))?;
     Ok((StatusCode::OK, "Actors Stopped!"))
 }
 
@@ -336,10 +487,21 @@ pub struct DisableMsgDelayRequest {
 
 /// Applies a fault-injection setting: 404 if the actor does not exist.
 #[cfg(feature = "chaos")]
-async fn apply_chaos(state: &AppState, actor_name: String, msg: ChaosMsg, done: &'static str) -> Response {
-    match state.request(|resp_tx| JobControllerReq::ChaosMsg { msg, resp_tx }).await {
+async fn apply_chaos(
+    state: &AppState,
+    actor_name: String,
+    msg: ChaosMsg,
+    done: &'static str,
+) -> Response {
+    match state
+        .request(|resp_tx| JobControllerReq::ChaosMsg { msg, resp_tx })
+        .await
+    {
         Ok(true) => (StatusCode::OK, done).into_response(),
-        Ok(false) => error(StatusCode::NOT_FOUND, format!("no actor named '{actor_name}'")),
+        Ok(false) => error(
+            StatusCode::NOT_FOUND,
+            format!("no actor named '{actor_name}'"),
+        ),
         Err(response) => response,
     }
 }
@@ -354,10 +516,23 @@ async fn apply_chaos(state: &AppState, actor_name: String, msg: ChaosMsg, done: 
         (status = 500, description = "The node controller is not running")
     )
 ))]
-async fn set_duplication(State(_state): State<Arc<AppState>>, Json(_dupl_request): Json<MsgDuplicationRequest>) -> Response {
+async fn set_duplication(
+    State(_state): State<Arc<AppState>>,
+    Json(_dupl_request): Json<MsgDuplicationRequest>,
+) -> Response {
     #[cfg(feature = "chaos")]
     {
-        apply_chaos(&_state, _dupl_request.actor_name.clone(), ChaosMsg::MsgDuplication { actor_name: _dupl_request.actor_name, factor: _dupl_request.factor, probability: _dupl_request.probability }, "Chaos Config Applied!").await
+        apply_chaos(
+            &_state,
+            _dupl_request.actor_name.clone(),
+            ChaosMsg::MsgDuplication {
+                actor_name: _dupl_request.actor_name,
+                factor: _dupl_request.factor,
+                probability: _dupl_request.probability,
+            },
+            "Chaos Config Applied!",
+        )
+        .await
     }
     #[cfg(not(feature = "chaos"))]
     StatusCode::NOT_IMPLEMENTED.into_response()
@@ -373,10 +548,22 @@ async fn set_duplication(State(_state): State<Arc<AppState>>, Json(_dupl_request
         (status = 500, description = "The node controller is not running")
     )
 ))]
-async fn set_msg_loss(State(_state): State<Arc<AppState>>, Json(_loss_request): Json<MsgLossRequest>) -> Response {
+async fn set_msg_loss(
+    State(_state): State<Arc<AppState>>,
+    Json(_loss_request): Json<MsgLossRequest>,
+) -> Response {
     #[cfg(feature = "chaos")]
     {
-        apply_chaos(&_state, _loss_request.actor_name.clone(), ChaosMsg::MsgLoss { actor_name: _loss_request.actor_name, probability: _loss_request.probability }, "Chaos Config Applied!").await
+        apply_chaos(
+            &_state,
+            _loss_request.actor_name.clone(),
+            ChaosMsg::MsgLoss {
+                actor_name: _loss_request.actor_name,
+                probability: _loss_request.probability,
+            },
+            "Chaos Config Applied!",
+        )
+        .await
     }
     #[cfg(not(feature = "chaos"))]
     StatusCode::NOT_IMPLEMENTED.into_response()
@@ -392,10 +579,26 @@ async fn set_msg_loss(State(_state): State<Arc<AppState>>, Json(_loss_request): 
         (status = 500, description = "The node controller is not running")
     )
 ))]
-async fn set_msg_delay(State(_state): State<Arc<AppState>>, Json(_delay_request): Json<MsgDelayRequest>) -> Response {
+async fn set_msg_delay(
+    State(_state): State<Arc<AppState>>,
+    Json(_delay_request): Json<MsgDelayRequest>,
+) -> Response {
     #[cfg(feature = "chaos")]
     {
-        apply_chaos(&_state, _delay_request.actor_name.clone(), ChaosMsg::MsgDelay { actor_name: _delay_request.actor_name, senders: _delay_request.senders, delay_range_ms: (_delay_request.delay_range_start, _delay_request.delay_range_end) }, "Chaos Config Applied!").await
+        apply_chaos(
+            &_state,
+            _delay_request.actor_name.clone(),
+            ChaosMsg::MsgDelay {
+                actor_name: _delay_request.actor_name,
+                senders: _delay_request.senders,
+                delay_range_ms: (
+                    _delay_request.delay_range_start,
+                    _delay_request.delay_range_end,
+                ),
+            },
+            "Chaos Config Applied!",
+        )
+        .await
     }
     #[cfg(not(feature = "chaos"))]
     StatusCode::NOT_IMPLEMENTED.into_response()
@@ -411,10 +614,21 @@ async fn set_msg_delay(State(_state): State<Arc<AppState>>, Json(_delay_request)
         (status = 500, description = "The node controller is not running")
     )
 ))]
-async fn unset_msg_duplication(State(_state): State<Arc<AppState>>, _actor_addr: String) -> Response {
+async fn unset_msg_duplication(
+    State(_state): State<Arc<AppState>>,
+    _actor_addr: String,
+) -> Response {
     #[cfg(feature = "chaos")]
     {
-        apply_chaos(&_state, _actor_addr.clone(), ChaosMsg::DisableMsgDuplication { actor_name: _actor_addr }, "Chaos Config Removed!").await
+        apply_chaos(
+            &_state,
+            _actor_addr.clone(),
+            ChaosMsg::DisableMsgDuplication {
+                actor_name: _actor_addr,
+            },
+            "Chaos Config Removed!",
+        )
+        .await
     }
     #[cfg(not(feature = "chaos"))]
     StatusCode::NOT_IMPLEMENTED.into_response()
@@ -433,7 +647,15 @@ async fn unset_msg_duplication(State(_state): State<Arc<AppState>>, _actor_addr:
 async fn unset_msg_loss(State(_state): State<Arc<AppState>>, _actor_addr: String) -> Response {
     #[cfg(feature = "chaos")]
     {
-        apply_chaos(&_state, _actor_addr.clone(), ChaosMsg::DisableMsgLoss { actor_name: _actor_addr }, "Chaos Config Removed!").await
+        apply_chaos(
+            &_state,
+            _actor_addr.clone(),
+            ChaosMsg::DisableMsgLoss {
+                actor_name: _actor_addr,
+            },
+            "Chaos Config Removed!",
+        )
+        .await
     }
     #[cfg(not(feature = "chaos"))]
     StatusCode::NOT_IMPLEMENTED.into_response()
@@ -449,10 +671,22 @@ async fn unset_msg_loss(State(_state): State<Arc<AppState>>, _actor_addr: String
         (status = 500, description = "The node controller is not running")
     )
 ))]
-async fn unset_msg_delay(State(_state): State<Arc<AppState>>, Json(_disable_delay_request): Json<DisableMsgDelayRequest>) -> Response {
+async fn unset_msg_delay(
+    State(_state): State<Arc<AppState>>,
+    Json(_disable_delay_request): Json<DisableMsgDelayRequest>,
+) -> Response {
     #[cfg(feature = "chaos")]
     {
-        apply_chaos(&_state, _disable_delay_request.actor_name.clone(), ChaosMsg::DisableMsgDelay { actor_name: _disable_delay_request.actor_name, senders: _disable_delay_request.senders }, "Chaos Config Removed!").await
+        apply_chaos(
+            &_state,
+            _disable_delay_request.actor_name.clone(),
+            ChaosMsg::DisableMsgDelay {
+                actor_name: _disable_delay_request.actor_name,
+                senders: _disable_delay_request.senders,
+            },
+            "Chaos Config Removed!",
+        )
+        .await
     }
     #[cfg(not(feature = "chaos"))]
     StatusCode::NOT_IMPLEMENTED.into_response()
@@ -464,7 +698,10 @@ async fn unset_msg_delay(State(_state): State<Arc<AppState>>, Json(_disable_dela
 #[derive(OpenApi)]
 #[openapi(
     paths(
-        compile_lib,
+        build_lib,
+        clear_build_cache,
+        cancel_builds,
+        cancel_build,
         start_actor,
         actor_added,
         stop_actor,
@@ -491,10 +728,14 @@ pub(crate) async fn listen(config: &NodeConfig) -> std::io::Result<tokio::net::T
         .validate()
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
     let addr = SocketAddr::new(config.bind, config.port);
-    let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| {
-        std::io::Error::new(e.kind(), format!("cannot listen on {addr}: {e}"))
-    })?;
-    let auth = if config.auth_token.is_some() { "bearer token required" } else { "no auth" };
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .map_err(|e| std::io::Error::new(e.kind(), format!("cannot listen on {addr}: {e}")))?;
+    let auth = if config.auth_token.is_some() {
+        "bearer token required"
+    } else {
+        "no auth"
+    };
     println!("\nWill Now Listen on {addr} ({auth})");
     Ok(listener)
 }
@@ -509,9 +750,10 @@ async fn require_token(
         next.run(request).await
     } else {
         let mut response = error(StatusCode::UNAUTHORIZED, "missing or wrong auth token");
-        response
-            .headers_mut()
-            .insert(header::WWW_AUTHENTICATE, header::HeaderValue::from_static("Bearer"));
+        response.headers_mut().insert(
+            header::WWW_AUTHENTICATE,
+            header::HeaderValue::from_static("Bearer"),
+        );
         response
     }
 }
@@ -526,12 +768,15 @@ pub async fn webserver(
     let state = Arc::new(AppState { tx: job_control_tx });
     let app = Router::new()
         // compile
-        .route("/compile_lib", post(compile_lib))
+        .route("/cache", delete(clear_build_cache))
+        .route("/builds", post(build_lib))
+        .route("/builds", delete(cancel_builds))
+        .route("/builds/{lib_name}", delete(cancel_build))
         // actor lifecycle
         .route("/status", get(get_status))
         .route("/start_actor", post(start_actor))
         .route("/actor_added", post(actor_added))
-        .route("/stop_actor", post(stop_actor))
+        .route("/stop_actor/{actor_addr}", post(stop_actor))
         .route("/stop_all_actors", post(stop_all_actors))
         // chaos
         .route("/set_duplication", post(set_duplication))
@@ -590,15 +835,22 @@ pub async fn webserver(
 
     #[cfg(feature = "swagger")]
     let app = {
-        use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityRequirement, SecurityScheme};
+        use utoipa::openapi::security::{
+            HttpAuthScheme, HttpBuilder, SecurityRequirement, SecurityScheme,
+        };
         let mut doc = ApiDoc::openapi();
         doc.merge(extension.openapi);
         // every route, including the extension's, sits behind `require_token`
-        doc.components.get_or_insert_with(Default::default).add_security_scheme(
+        doc.components
+            .get_or_insert_with(Default::default)
+            .add_security_scheme(
+                "bearer_auth",
+                SecurityScheme::Http(HttpBuilder::new().scheme(HttpAuthScheme::Bearer).build()),
+            );
+        doc.security = Some(vec![SecurityRequirement::new(
             "bearer_auth",
-            SecurityScheme::Http(HttpBuilder::new().scheme(HttpAuthScheme::Bearer).build()),
-        );
-        doc.security = Some(vec![SecurityRequirement::new("bearer_auth", Vec::<String>::new())]);
+            Vec::<String>::new(),
+        )]);
         app.merge(SwaggerUi::new("/docs").url("/api-doc/openapi.json", doc))
     };
 

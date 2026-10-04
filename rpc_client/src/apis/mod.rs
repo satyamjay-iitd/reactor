@@ -111,6 +111,8 @@ impl From<&str> for ContentType {
     }
 }
 
-pub mod default_api;
+pub mod actor_lifecycle_api;
+pub mod chaos_api;
+pub mod compile_api;
 
 pub mod configuration;

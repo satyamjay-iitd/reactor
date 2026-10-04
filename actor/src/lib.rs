@@ -6,10 +6,10 @@ use bincode::{Decode, Encode};
 use err::ActorError;
 use futures::future::join_all;
 pub use inventory as __inventory;
-pub use serde_json as __serde_json;
 use reactor_channel::{ReactorChannelTx, reactor_channel};
 use recv::rx;
 use send::tx;
+pub use serde_json as __serde_json;
 use tokio::{
     sync::mpsc::{self},
     task::JoinHandle,

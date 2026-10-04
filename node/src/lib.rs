@@ -63,9 +63,9 @@ mod config;
 mod op_lib_manager;
 mod rpc;
 
-pub use config::NodeConfig;
 #[cfg(feature = "cli")]
 pub use config::NodeArgs;
+pub use config::NodeConfig;
 
 pub type NodeAddr = &'static str;
 // pub type ActorSpawnCB = fn(RuntimeCtx, HashMap<String, serde_json::Value>);
@@ -153,6 +153,13 @@ pub(crate) enum ChaosMsg {
     },
 }
 
+#[cfg(feature = "dynop")]
+#[derive(Debug)]
+pub(crate) struct ClearedBuilds {
+    pub unloaded: Vec<LibName>,
+    pub freed_bytes: u64,
+}
+
 /// Global Controller
 pub(crate) enum JobControllerReq {
     #[cfg(feature = "dynop")]
@@ -161,6 +168,18 @@ pub(crate) enum JobControllerReq {
         args: HashMap<String, Value>,
         /// `true` = freshly compiled, `false` = already up-to-date (skipped)
         resp_tx: oneshot::Sender<Result<bool, crate::lib_builder::BuildError>>,
+    },
+    /// Cancels the builds of a library (`None`: all); replies with the cancelled libraries.
+    #[cfg(feature = "dynop")]
+    CancelBuilds {
+        lib_name: Option<String>,
+        resp_tx: oneshot::Sender<Vec<String>>,
+    },
+    #[cfg(feature = "dynop")]
+    /// Unloads the compiled libraries and deletes their build directories. Refused while actors
+    /// run.
+    ClearBuildCache {
+        resp_tx: oneshot::Sender<Result<ClearedBuilds, crate::lib_builder::BuildError>>,
     },
     ActorLifeCycle(ActorLifeCycle),
     #[cfg(feature = "chaos")]
@@ -190,7 +209,11 @@ pub(crate) async fn handle_actor_req(
             if let Some(local) = local_actors.get(&addr) {
                 info!(target: "resolved", addr="local");
                 let (write_half, read_half) = mpsc::channel(1 << 10);
-                let connection = match local.handle.send(ControlInst::StartLocalRecv(read_half)).await {
+                let connection = match local
+                    .handle
+                    .send(ControlInst::StartLocalRecv(read_half))
+                    .await
+                {
                     Ok(()) => Connection::Local(write_half),
                     // the actor stopped in the meantime
                     Err(_) => Connection::CouldntResolve,
@@ -221,7 +244,17 @@ pub(crate) async fn handle_spawnactor(
         payload,
     } = req;
     info!(target: "serving spawn actor", addr, op_name, lib_name, ?payload);
-    let result = spawn_actor(&addr, &lib_name, &op_name, payload, op_lib, actor_control_tx, local_actors, data_addr).await;
+    let result = spawn_actor(
+        &addr,
+        &lib_name,
+        &op_name,
+        payload,
+        op_lib,
+        actor_control_tx,
+        local_actors,
+        data_addr,
+    )
+    .await;
     match &result {
         Ok(_) => info!(target: "actor spawned", %data_addr),
         Err(e) => error!(target: "spawn actor failed", addr, error = %e),
@@ -250,8 +283,10 @@ async fn spawn_actor(
         addr.to_string().leak(),
         NodeComm::new(control_rx, actor_control_tx.clone()),
     );
-    op(ctx, payload)
-        .map_err(|message| SpawnError::OperatorFailed { op: op_name.to_string(), message })?;
+    op(ctx, payload).map_err(|message| SpawnError::OperatorFailed {
+        op: op_name.to_string(),
+        message,
+    })?;
     control_tx
         .send(ControlInst::StartTcpRecv(data_addr))
         .await
@@ -260,29 +295,49 @@ async fn spawn_actor(
             message: "the actor exited while starting".to_string(),
         })?;
     local_actors.insert(addr.to_string(), LocalActor { handle: control_tx });
-    Ok(SpawnResult { port: data_addr.port() })
+    Ok(SpawnResult {
+        port: data_addr.port(),
+    })
 }
 
 /// Applies a fault-injection setting to a local actor; `false` if there is no such actor.
 #[cfg(feature = "chaos")]
 async fn handle_chaos(msg: ChaosMsg, local_actors: &mut HashMap<ActorAddr, LocalActor>) -> bool {
     let (actor_name, inst) = match msg {
-        ChaosMsg::MsgDuplication { actor_name, factor, probability } => {
-            (actor_name, ControlInst::SetMsgDuplication { factor, probability })
-        }
-        ChaosMsg::MsgLoss { actor_name, probability } => {
-            (actor_name, ControlInst::SetMsgLoss { probability })
-        }
-        ChaosMsg::MsgDelay { actor_name, delay_range_ms, senders } => {
-            (actor_name, ControlInst::SetMsgDelay { delay_range_ms, senders })
-        }
+        ChaosMsg::MsgDuplication {
+            actor_name,
+            factor,
+            probability,
+        } => (
+            actor_name,
+            ControlInst::SetMsgDuplication {
+                factor,
+                probability,
+            },
+        ),
+        ChaosMsg::MsgLoss {
+            actor_name,
+            probability,
+        } => (actor_name, ControlInst::SetMsgLoss { probability }),
+        ChaosMsg::MsgDelay {
+            actor_name,
+            delay_range_ms,
+            senders,
+        } => (
+            actor_name,
+            ControlInst::SetMsgDelay {
+                delay_range_ms,
+                senders,
+            },
+        ),
         ChaosMsg::DisableMsgLoss { actor_name } => (actor_name, ControlInst::UnsetMsgLoss),
         ChaosMsg::DisableMsgDuplication { actor_name } => {
             (actor_name, ControlInst::UnsetMsgDuplication)
         }
-        ChaosMsg::DisableMsgDelay { actor_name, senders } => {
-            (actor_name, ControlInst::UnsetMsgDelay { senders })
-        }
+        ChaosMsg::DisableMsgDelay {
+            actor_name,
+            senders,
+        } => (actor_name, ControlInst::UnsetMsgDelay { senders }),
     };
     match local_actors.get(&actor_name) {
         Some(actor) => {
@@ -411,7 +466,14 @@ mod tests {
             resp_tx,
             payload: HashMap::new(),
         };
-        handle_spawnactor(req, &OpLibrary::default(), &actor_control_tx, local_actors, "127.0.0.1:6000".parse().unwrap()).await;
+        handle_spawnactor(
+            req,
+            &OpLibrary::default(),
+            &actor_control_tx,
+            local_actors,
+            "127.0.0.1:6000".parse().unwrap(),
+        )
+        .await;
         resp_rx.await.expect("the controller replies")
     }
 
@@ -419,7 +481,10 @@ mod tests {
     async fn spawning_from_an_unknown_library_is_an_error() {
         let mut local_actors = HashMap::new();
         let err = spawn(&mut local_actors, "a", "nope").await.unwrap_err();
-        assert!(matches!(err, SpawnError::LibraryNotFound(ref lib) if lib == "nope"), "{err}");
+        assert!(
+            matches!(err, SpawnError::LibraryNotFound(ref lib) if lib == "nope"),
+            "{err}"
+        );
         assert!(local_actors.is_empty());
     }
 
@@ -427,7 +492,10 @@ mod tests {
     async fn spawning_a_duplicate_actor_is_an_error() {
         let mut local_actors = HashMap::from([("a".to_string(), local_actor())]);
         let err = spawn(&mut local_actors, "a", "nope").await.unwrap_err();
-        assert!(matches!(err, SpawnError::ActorExists(ref name) if name == "a"), "{err}");
+        assert!(
+            matches!(err, SpawnError::ActorExists(ref name) if name == "a"),
+            "{err}"
+        );
         assert_eq!(local_actors.len(), 1);
     }
 
@@ -438,9 +506,19 @@ mod tests {
         let (actor_control_tx, _rx) = channel(1);
         for (name, expected) in [("ghost", false), ("a", true), ("a", false)] {
             let (resp_tx, resp_rx) = oneshot::channel();
-            let lc = ActorLifeCycle::StopActor { addr: name.to_string(), resp_tx };
-            handle_actor_lc(lc, &OpLibrary::default(), &actor_control_tx, &mut remote_actors, &mut local_actors, "127.0.0.1:6000".parse().unwrap())
-                .await;
+            let lc = ActorLifeCycle::StopActor {
+                addr: name.to_string(),
+                resp_tx,
+            };
+            handle_actor_lc(
+                lc,
+                &OpLibrary::default(),
+                &actor_control_tx,
+                &mut remote_actors,
+                &mut local_actors,
+                "127.0.0.1:6000".parse().unwrap(),
+            )
+            .await;
             assert_eq!(resp_rx.await.unwrap(), expected, "stop {name}");
         }
         assert!(local_actors.is_empty());
@@ -450,8 +528,14 @@ mod tests {
     #[tokio::test]
     async fn chaos_settings_report_unknown_actors() {
         let mut local_actors = HashMap::from([("a".to_string(), local_actor())]);
-        let known = ChaosMsg::MsgLoss { actor_name: "a".to_string(), probability: 0.5 };
-        let unknown = ChaosMsg::MsgLoss { actor_name: "ghost".to_string(), probability: 0.5 };
+        let known = ChaosMsg::MsgLoss {
+            actor_name: "a".to_string(),
+            probability: 0.5,
+        };
+        let unknown = ChaosMsg::MsgLoss {
+            actor_name: "ghost".to_string(),
+            probability: 0.5,
+        };
         assert!(handle_chaos(known, &mut local_actors).await);
         assert!(!handle_chaos(unknown, &mut local_actors).await);
     }
@@ -461,8 +545,14 @@ mod tests {
         let hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(|_| {}));
         assert_eq!(reactor_actor::catch_spawn(|| ()), Ok(()));
-        assert_eq!(reactor_actor::catch_spawn(|| panic!("static")), Err("static".to_string()));
-        assert_eq!(reactor_actor::catch_spawn(|| panic!("formatted {}", 1)), Err("formatted 1".to_string()));
+        assert_eq!(
+            reactor_actor::catch_spawn(|| panic!("static")),
+            Err("static".to_string())
+        );
+        assert_eq!(
+            reactor_actor::catch_spawn(|| panic!("formatted {}", 1)),
+            Err("formatted 1".to_string())
+        );
         std::panic::set_hook(hook);
     }
 }
