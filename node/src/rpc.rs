@@ -7,16 +7,18 @@ use std::{
 
 use axum::{
     Json, Router,
-    body::Bytes,
-    extract::{MatchedPath, State},
-    http::{HeaderMap, Request},
+    body::{Body, Bytes},
+    extract::{MatchedPath, Path, State},
+    http::{HeaderMap, Method, Request, StatusCode, header},
+    middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{delete, get, post},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::sync::mpsc::UnboundedSender;
-use tower_http::cors::{Any, CorsLayer};
+use tokio::sync::{mpsc::UnboundedSender, oneshot};
+use tower_http::catch_panic::CatchPanicLayer;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::{classify::ServerErrorsFailureClass, trace::TraceLayer};
 use tracing::{Span, info_span};
 #[cfg(feature = "swagger")]
@@ -24,12 +26,238 @@ use utoipa::{OpenApi, ToSchema};
 #[cfg(feature = "swagger")]
 use utoipa_swagger_ui::SwaggerUi;
 
-use crate::JobControllerReq;
+#[cfg(feature = "chaos")]
+use crate::ChaosMsg;
+use crate::{ActorLifeCycle, JobControllerReq, NodeConfig, SpawnActor, SpawnError};
 
 #[derive(Clone)]
 struct AppState {
     tx: UnboundedSender<JobControllerReq>,
 }
+
+impl AppState {
+    /// Sends a request to the node controller and waits for its reply.
+    async fn request<T>(
+        &self,
+        make_request: impl FnOnce(oneshot::Sender<T>) -> JobControllerReq,
+    ) -> Result<T, Response> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.tx
+            .send(make_request(resp_tx))
+            .map_err(|_| controller_unavailable())?;
+        resp_rx.await.map_err(|_| controller_unavailable())
+    }
+
+    /// Sends a request to the node controller without waiting for it to be handled.
+    fn notify(&self, request: JobControllerReq) -> Result<(), Response> {
+        self.tx.send(request).map_err(|_| controller_unavailable())
+    }
+}
+
+/// A plain-text error response.
+fn error(status: StatusCode, message: impl Into<String>) -> Response {
+    (status, message.into()).into_response()
+}
+
+fn controller_unavailable() -> Response {
+    error(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "the node controller is not running",
+    )
+}
+
+/// The node's host as the client addressed it (the `Host` header without its port).
+fn request_host(headers: &HeaderMap) -> String {
+    let Some(host) = headers.get(header::HOST).and_then(|h| h.to_str().ok()) else {
+        return String::new();
+    };
+    if let Some(bracketed) = host.strip_prefix('[') {
+        // IPv6: [::1]:8080
+        return bracketed.split(']').next().unwrap_or_default().to_string();
+    }
+    match host.rsplit_once(':') {
+        Some((name, port)) if port.chars().all(|c| c.is_ascii_digit()) => name.to_string(),
+        _ => host.to_string(),
+    }
+}
+
+//////////////////////////////////////////////////////////////////////
+////////////////////////// COMPILE APIs //////////////////////////////
+//////////////////////////////////////////////////////////////////////
+
+#[cfg_attr(feature = "swagger", derive(ToSchema))]
+#[derive(Serialize, Deserialize, Debug)]
+pub(crate) struct CompilationArgs {
+    pub lib_name: String,
+    pub args: HashMap<String, Value>,
+}
+
+#[cfg_attr(feature = "swagger", utoipa::path(
+    post,
+    path = "/builds",
+    tag = "compile",
+    request_body(
+        content = CompilationArgs,
+        description = "Arguments to compile an operator",
+        content_type = "application/json"
+    ),
+    responses(
+        (status = 201, description = "Compiled and loaded"),
+        (status = 200, description = "Already loaded, compiled from identical arguments; nothing to do"),
+        (status = 400, description = "Code generation or compilation failed (message in the body)"),
+        (status = 409, description = "A library with this name is loaded (built from other arguments) or being built, \
+            or the build was cancelled"),
+        (status = 500, description = "The node controller is not running"),
+        (status = 501, description = "Compilation Not Supported on this node")
+    )
+))]
+async fn build_lib(
+    State(_state): State<Arc<AppState>>,
+    Json(_reg_arg): Json<CompilationArgs>,
+) -> Response {
+    #[cfg(feature = "dynop")]
+    {
+        use crate::lib_builder::BuildError;
+        let result = _state
+            .request(|resp_tx| JobControllerReq::CompileOps {
+                lib_name: _reg_arg.lib_name,
+                args: _reg_arg.args,
+                resp_tx,
+            })
+            .await;
+        match result {
+            Ok(Ok(true)) => StatusCode::CREATED.into_response(),
+            Ok(Ok(false)) => StatusCode::OK.into_response(),
+            Ok(Err(e @ BuildError::CompilationNotSupported)) => {
+                error(StatusCode::NOT_IMPLEMENTED, e.to_string())
+            }
+            Ok(Err(
+                e @ (BuildError::LoadedWithOtherArgs(_)
+                | BuildError::AlreadyBuilding(_)
+                | BuildError::Cancelled(_)),
+            )) => error(StatusCode::CONFLICT, e.to_string()),
+            Ok(Err(e)) => error(StatusCode::BAD_REQUEST, e.to_string()),
+            Err(response) => response,
+        }
+    }
+    #[cfg(not(feature = "dynop"))]
+    StatusCode::NOT_IMPLEMENTED.into_response()
+}
+
+#[cfg_attr(feature = "swagger", derive(ToSchema))]
+#[derive(Serialize)]
+#[cfg_attr(not(feature = "dynop"), allow(dead_code))]
+pub(crate) struct CancelledBuilds {
+    /// The libraries whose builds were cancelled; their compile requests answer 409.
+    pub cancelled: Vec<String>,
+}
+
+#[cfg_attr(feature = "swagger", utoipa::path(
+    delete,
+    path = "/builds",
+    tag = "compile",
+    responses(
+        (status = 200, description = "Cancelled the builds in progress (killing the compiler)", body = CancelledBuilds),
+        (status = 500, description = "The node controller is not running"),
+    )
+))]
+async fn cancel_builds(State(state): State<Arc<AppState>>) -> Response {
+    cancel(&state, None).await
+}
+
+#[cfg_attr(feature = "swagger", utoipa::path(
+    delete,
+    path = "/builds/{lib_name}",
+    tag = "compile",
+    params(("lib_name" = String, Path, description = "The library being built")),
+    responses(
+        (status = 200, description = "Cancelled the library's build (killing the compiler)", body = CancelledBuilds),
+        (status = 404, description = "The library is not being built"),
+        (status = 500, description = "The node controller is not running"),
+    )
+))]
+async fn cancel_build(
+    State(state): State<Arc<AppState>>,
+    Path(lib_name): Path<String>,
+) -> Response {
+    cancel(&state, Some(lib_name)).await
+}
+
+async fn cancel(state: &AppState, lib_name: Option<String>) -> Response {
+    #[cfg(feature = "dynop")]
+    {
+        let specific = lib_name.clone();
+        match state
+            .request(|resp_tx| JobControllerReq::CancelBuilds { lib_name, resp_tx })
+            .await
+        {
+            Ok(cancelled) if cancelled.is_empty() && specific.is_some() => error(
+                StatusCode::NOT_FOUND,
+                format!("library '{}' is not being built", specific.unwrap()),
+            ),
+            Ok(cancelled) => Json(CancelledBuilds { cancelled }).into_response(),
+            Err(response) => response,
+        }
+    }
+    #[cfg(not(feature = "dynop"))]
+    Json(CancelledBuilds { cancelled: vec![] }).into_response()
+}
+
+#[cfg_attr(feature = "swagger", derive(ToSchema))]
+#[derive(Serialize)]
+#[cfg_attr(not(feature = "dynop"), allow(dead_code))]
+pub(crate) struct ClearedCache {
+    /// The compiled libraries that were unloaded; the next request for one compiles it again.
+    pub unloaded: Vec<String>,
+    /// Disk space the build directories took.
+    pub freed_bytes: u64,
+}
+
+#[cfg_attr(feature = "swagger", utoipa::path(
+    delete,
+    path = "/cache",
+    tag = "compile",
+    responses(
+        (status = 200, description = "Unloaded the compiled libraries and deleted their build directories. \
+            Their memory is released when the node restarts", body = ClearedCache),
+        (status = 409, description = "Actors are running on this node, or libraries are being built"),
+        (status = 500, description = "The directories could not be deleted, or the node controller is not running"),
+        (status = 501, description = "Compilation Not Supported on this node")
+    )
+))]
+async fn clear_build_cache(State(_state): State<Arc<AppState>>) -> Response {
+    #[cfg(feature = "dynop")]
+    {
+        use crate::lib_builder::BuildError;
+        match _state
+            .request(|resp_tx| JobControllerReq::ClearBuildCache { resp_tx })
+            .await
+        {
+            Ok(Ok(cleared)) => Json(ClearedCache {
+                unloaded: cleared.unloaded,
+                freed_bytes: cleared.freed_bytes,
+            })
+            .into_response(),
+            Ok(Err(e @ BuildError::CompilationNotSupported)) => {
+                error(StatusCode::NOT_IMPLEMENTED, e.to_string())
+            }
+            Ok(Err(e @ (BuildError::ActorsRunning(_) | BuildError::Building(_)))) => {
+                error(StatusCode::CONFLICT, e.to_string())
+            }
+            Ok(Err(e)) => error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("cannot delete the build cache: {e}"),
+            ),
+            Err(response) => response,
+        }
+    }
+    #[cfg(not(feature = "dynop"))]
+    StatusCode::NOT_IMPLEMENTED.into_response()
+}
+
+//////////////////////////////////////////////////////////////////////
+/////////////////////// ACTOR LIFECYCLE APIs /////////////////////////
+//////////////////////////////////////////////////////////////////////
 
 #[cfg_attr(feature = "swagger", derive(ToSchema))]
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -48,11 +276,183 @@ pub(crate) struct RemoteActorInfo {
     pub port: u16,
 }
 
-// #[cfg_attr(feature = "swagger", derive(utoipa::ToSchema))]
-// #[derive(Serialize, Deserialize, Debug)]
-// pub struct CrashRequest {
-//     pub actor_name: String,
-// }
+#[cfg_attr(feature = "swagger", derive(ToSchema))]
+#[derive(Serialize)]
+struct StatusResponse {
+    actors: Vec<String>,
+    loaded_libs: HashMap<String, Vec<String>>,
+}
+
+#[cfg_attr(feature = "swagger", utoipa::path(
+    post,
+    path = "/start_actor",
+    tag = "actor_lifecycle",
+    request_body(
+        content = SpawnArgs,
+        description = "Actor arguments as arbitrary JSON",
+        content_type = "application/json"
+    ),
+    responses(
+        (status = 201, description = "Started; `hostname` is the node's host as addressed by the client", body = RemoteActorInfo),
+        (status = 400, description = "The operator failed to start, e.g. because of an invalid payload"),
+        (status = 404, description = "No such library or operator"),
+        (status = 409, description = "An actor with this name already exists"),
+        (status = 500, description = "The node controller is not running")
+    )
+))]
+async fn start_actor(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(args): Json<SpawnArgs>,
+) -> Result<(StatusCode, Json<RemoteActorInfo>), Response> {
+    let name = args.actor_name.clone();
+    let spawned = state
+        .request(|resp_tx| {
+            JobControllerReq::ActorLifeCycle(ActorLifeCycle::SpawnActor(SpawnActor {
+                addr: args.actor_name,
+                resp_tx,
+                op_name: args.operator_name,
+                lib_name: args.lib_name,
+                payload: args.payload,
+            }))
+        })
+        .await?
+        .map_err(|e| {
+            let status = match e {
+                SpawnError::LibraryNotFound(_) | SpawnError::OperatorNotFound { .. } => {
+                    StatusCode::NOT_FOUND
+                }
+                SpawnError::ActorExists(_) => StatusCode::CONFLICT,
+                SpawnError::OperatorFailed { .. } => StatusCode::BAD_REQUEST,
+            };
+            error(status, e.to_string())
+        })?;
+    let detail = RemoteActorInfo {
+        name,
+        hostname: request_host(&headers),
+        port: spawned.port,
+    };
+    Ok((StatusCode::CREATED, Json(detail)))
+}
+
+#[cfg_attr(feature="swagger", utoipa::path(
+    post,
+    path = "/actor_added",
+    tag = "actor_lifecycle",
+    request_body(
+        content = RemoteActorInfo,
+        description = "Remote Actor Detail",
+        content_type = "application/json"
+    ),
+    responses(
+        (status = 201, description = "Notify actor start on remote"),
+        (status = 400, description = "`hostname` is not an IP address"),
+        (status = 500, description = "The node controller is not running")
+    )
+))]
+async fn actor_added(
+    State(state): State<Arc<AppState>>,
+    Json(actor_info): Json<RemoteActorInfo>,
+) -> Result<(StatusCode, &'static str), Response> {
+    let remote_ip: IpAddr = actor_info.hostname.parse().map_err(|_| {
+        error(
+            StatusCode::BAD_REQUEST,
+            format!(
+                "hostname must be an IP address, got '{}'",
+                actor_info.hostname
+            ),
+        )
+    })?;
+    state.notify(JobControllerReq::ActorLifeCycle(
+        ActorLifeCycle::RemoteActorAdded {
+            addr: actor_info.name,
+            sock_addr: SocketAddr::new(remote_ip, actor_info.port),
+        },
+    ))?;
+    Ok((StatusCode::CREATED, "Actor added!"))
+}
+
+#[cfg_attr(
+    feature = "swagger",
+    utoipa::path(
+        post,
+        path = "/stop_actor/{actor_addr}",
+        tag = "actor_lifecycle",
+        params(
+            ("actor_addr" = String, Path, description = "Address of the actor to stop")
+        ),
+        responses(
+            (status = 200, description = "Actor stop initiated"),
+            (status = 404, description = "Actor not found"),
+            (status = 500, description = "The node controller is not running")
+        )
+    )
+)]
+async fn stop_actor(
+    State(state): State<Arc<AppState>>,
+    Path(actor_addr): Path<String>,
+) -> Response {
+    let found = state
+        .request(|resp_tx| {
+            JobControllerReq::ActorLifeCycle(ActorLifeCycle::StopActor {
+                addr: actor_addr.clone(),
+                resp_tx,
+            })
+        })
+        .await;
+
+    match found {
+        Ok(true) => (StatusCode::OK, format!("Actor {actor_addr} Stopped!")).into_response(),
+
+        Ok(false) => error(
+            StatusCode::NOT_FOUND,
+            format!("no actor named '{actor_addr}'"),
+        ),
+
+        Err(response) => response,
+    }
+}
+
+#[cfg_attr(feature="swagger", utoipa::path(
+    post,
+    path = "/stop_all_actors",
+    tag = "actor_lifecycle",
+    responses(
+        (status = 200, description = "Actors stop initiated"),
+        (status = 500, description = "The node controller is not running")
+    )
+))]
+async fn stop_all_actors(
+    State(state): State<Arc<AppState>>,
+) -> Result<(StatusCode, &'static str), Response> {
+    state.notify(JobControllerReq::ActorLifeCycle(
+        ActorLifeCycle::StopAllActors,
+    ))?;
+    Ok((StatusCode::OK, "Actors Stopped!"))
+}
+
+#[cfg_attr(feature="swagger", utoipa::path(
+    get,
+    path = "/status",
+    tag = "actor_lifecycle",
+    responses(
+        (status = 200, description = "Status of the node", body = StatusResponse),
+        (status = 500, description = "The node controller is not running")
+    )
+))]
+async fn get_status(State(state): State<Arc<AppState>>) -> Result<Json<StatusResponse>, Response> {
+    let status = state
+        .request(|resp_tx| JobControllerReq::ActorLifeCycle(ActorLifeCycle::GetStatus { resp_tx }))
+        .await?;
+    Ok(Json(StatusResponse {
+        actors: status.actors,
+        loaded_libs: status.loaded_libs,
+    }))
+}
+
+//////////////////////////////////////////////////////////////////////
+////////////////////////// CHAOS APIs ////////////////////////////////
+//////////////////////////////////////////////////////////////////////
 
 #[cfg_attr(feature = "swagger", derive(utoipa::ToSchema))]
 #[derive(Serialize, Deserialize, Debug)]
@@ -85,397 +485,322 @@ pub struct DisableMsgDelayRequest {
     pub senders: Vec<String>,
 }
 
-#[cfg_attr(feature = "swagger", derive(ToSchema))]
-#[derive(Serialize, Deserialize, Debug)]
-pub(crate) struct RegistrationArgs {
-    pub lib_name: String,
-    pub args: HashMap<String, Value>,
-}
-
-#[cfg_attr(feature = "swagger", utoipa::path(
-    post,
-    path = "/register_lib",
-    request_body(
-        content = RegistrationArgs,
-        description = "Arguments to compile an operator",
-        content_type = "application/json"
-    ),
-    responses(
-        (status = 201, description = "Registration successful"),
-        (status = 400, description = "Registration Unsuccessful"),
-        (status = 501, description = "Registration Not Supported on this node")
-    )
-))]
-async fn register_lib(
-    State(_state): State<Arc<AppState>>,
-    Json(_reg_arg): Json<RegistrationArgs>,
-) -> impl IntoResponse {
-    #[cfg(feature = "dynop")]
+/// Applies a fault-injection setting: 404 if the actor does not exist.
+#[cfg(feature = "chaos")]
+async fn apply_chaos(
+    state: &AppState,
+    actor_name: String,
+    msg: ChaosMsg,
+    done: &'static str,
+) -> Response {
+    match state
+        .request(|resp_tx| JobControllerReq::ChaosMsg { msg, resp_tx })
+        .await
     {
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        _state
-            .clone()
-            .tx
-            .send(JobControllerReq::RegisterOps {
-                lib_name: _reg_arg.lib_name,
-                args: _reg_arg.args,
-                resp_tx: tx,
-            })
-            .unwrap();
-        let register_result = rx.await.unwrap();
-        assert!(register_result.is_some());
-
-        axum::http::StatusCode::CREATED
+        Ok(true) => (StatusCode::OK, done).into_response(),
+        Ok(false) => error(
+            StatusCode::NOT_FOUND,
+            format!("no actor named '{actor_name}'"),
+        ),
+        Err(response) => response,
     }
-    #[cfg(not(feature = "dynop"))]
-    {
-        axum::http::StatusCode::NOT_IMPLEMENTED
-    }
-}
-
-#[cfg_attr(feature = "swagger", utoipa::path(
-    post,
-    path = "/start_actor",
-    request_body(
-        content = SpawnArgs,
-        description = "Actor arguments as arbitrary JSON",
-        content_type = "application/json"
-    ),
-    responses(
-        (status = 201, description = "Start a new actor", body = RemoteActorInfo)
-    )
-))]
-async fn start_actor(
-    State(state): State<Arc<AppState>>,
-    Json(args): Json<SpawnArgs>,
-) -> impl IntoResponse {
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    state
-        .clone()
-        .tx
-        .send(JobControllerReq::SpawnActor {
-            addr: args.actor_name.clone(),
-            resp_tx: tx,
-            op_name: args.operator_name,
-            lib_name: args.lib_name,
-            payload: args.payload,
-        })
-        .unwrap();
-    let status = rx.await.unwrap();
-    assert!(status.is_some());
-
-    let detail = RemoteActorInfo {
-        name: args.actor_name,
-        hostname: "".to_string(),
-        port: status.unwrap().port,
-    };
-    (axum::http::StatusCode::CREATED, Json(detail))
-}
-
-#[cfg_attr(feature="swagger", utoipa::path(
-    post,
-    path = "/actor_added",
-    request_body(
-        content = RemoteActorInfo,
-        description = "Remote Actor Detail",
-        content_type = "application/json"
-    ),
-    responses(
-        (status = 201, description = "Notify actor start on remote")
-    )
-))]
-async fn actor_added(
-    State(state): State<Arc<AppState>>,
-    Json(actor_info): Json<RemoteActorInfo>,
-) -> impl IntoResponse {
-    /*if let Ok(mut hosts) = lookup_host(&actor_info.hostname).await {
-        if let Some(socket_addr) = hosts.next() {
-            let remote_ip = socket_addr.ip();
-            println!("Resolved remote IP: {}", remote_ip);
-
-            let sock_addr = SocketAddr::new(remote_ip, actor_info.port);
-            println!("Full socket address: {}", sock_addr);
-
-            state
-                .clone()
-                .tx
-                .send(JobControllerReq::RemoteActorAdded {
-                    addr: actor_info.name.leak(),
-                    sock_addr,
-                })
-                .unwrap();
-
-            (axum::http::StatusCode::CREATED, "Actor added!")
-        } else {
-            eprintln!("No IPs resolved for hostname: {}", actor_info.hostname);
-            (axum::http::StatusCode::BAD_REQUEST, "Hostname could not be resolved")
-        }
-    } else {
-        eprintln!("Failed to lookup host: {}", actor_info.hostname);
-        (axum::http::StatusCode::BAD_REQUEST, "Invalid hostname")
-    }*/
-
-    /*let remote_ip = lookup_host(actor_info.hostname)
-    .await
-    .unwrap()
-    .next()
-    .unwrap()
-    .ip();*/
-    let remote_ip: IpAddr = actor_info.hostname.parse().unwrap();
-    state
-        .clone()
-        .tx
-        .send(JobControllerReq::RemoteActorAdded {
-            addr: actor_info.name,
-            sock_addr: SocketAddr::new(remote_ip, actor_info.port),
-        })
-        .unwrap();
-    (axum::http::StatusCode::CREATED, "Actor added!")
-}
-
-#[cfg_attr(feature="swagger", utoipa::path(
-    post,
-    path = "/stop_actor",
-    responses(
-        (status = 200, description = "Actor stop initiated"),
-        (status = 404, description = "Actor not found")
-    )
-))]
-async fn stop_actor(
-    State(state): State<Arc<AppState>>,
-    Json(actor_addr): Json<String>,
-) -> impl IntoResponse {
-    state
-        .clone()
-        .tx
-        .send(JobControllerReq::StopActor {
-            addr: actor_addr.clone(),
-        })
-        .unwrap();
-    (
-        axum::http::StatusCode::OK,
-        format!("Actor {} Stopped!", actor_addr),
-    )
-}
-
-#[cfg_attr(feature="swagger", utoipa::path(
-    post,
-    path = "/stop_all_actors",
-    responses(
-        (status = 200, description = "Actors stop initiated")
-    )
-))]
-async fn stop_all_actors(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    state
-        .clone()
-        .tx
-        .send(JobControllerReq::StopAllActors)
-        .unwrap();
-    (axum::http::StatusCode::OK, "Actors Stopped!")
 }
 
 #[cfg_attr(feature="swagger", utoipa::path(
     post,
     path = "/set_duplication",
+    tag = "chaos",
     responses(
-        (status = 200, description = "Msg Duplication Config Applied")
+        (status = 200, description = "Msg Duplication Config Applied"),
+        (status = 404, description = "Actor not found"),
+        (status = 500, description = "The node controller is not running")
     )
 ))]
 async fn set_duplication(
-    State(state): State<Arc<AppState>>,
-    Json(dupl_request): Json<MsgDuplicationRequest>,
-) -> impl IntoResponse {
-    state
-        .clone()
-        .tx
-        .send(JobControllerReq::MsgDuplication {
-            actor_name: dupl_request.actor_name,
-            factor: dupl_request.factor,
-            probability: dupl_request.probability,
-        })
-        .unwrap();
-    (axum::http::StatusCode::OK, "Chaos Config Applied!")
+    State(_state): State<Arc<AppState>>,
+    Json(_dupl_request): Json<MsgDuplicationRequest>,
+) -> Response {
+    #[cfg(feature = "chaos")]
+    {
+        apply_chaos(
+            &_state,
+            _dupl_request.actor_name.clone(),
+            ChaosMsg::MsgDuplication {
+                actor_name: _dupl_request.actor_name,
+                factor: _dupl_request.factor,
+                probability: _dupl_request.probability,
+            },
+            "Chaos Config Applied!",
+        )
+        .await
+    }
+    #[cfg(not(feature = "chaos"))]
+    StatusCode::NOT_IMPLEMENTED.into_response()
 }
 
 #[cfg_attr(feature="swagger", utoipa::path(
     post,
     path = "/set_msg_loss",
+    tag = "chaos",
     responses(
-        (status = 200, description = "Msg Loss Config Applied")
+        (status = 200, description = "Msg Loss Config Applied"),
+        (status = 404, description = "Actor not found"),
+        (status = 500, description = "The node controller is not running")
     )
 ))]
 async fn set_msg_loss(
-    State(state): State<Arc<AppState>>,
-    Json(loss_request): Json<MsgLossRequest>,
-) -> impl IntoResponse {
-    state
-        .clone()
-        .tx
-        .send(JobControllerReq::MsgLoss {
-            actor_name: loss_request.actor_name,
-            probability: loss_request.probability,
-        })
-        .unwrap();
-    (axum::http::StatusCode::OK, "Chaos Config Applied!")
+    State(_state): State<Arc<AppState>>,
+    Json(_loss_request): Json<MsgLossRequest>,
+) -> Response {
+    #[cfg(feature = "chaos")]
+    {
+        apply_chaos(
+            &_state,
+            _loss_request.actor_name.clone(),
+            ChaosMsg::MsgLoss {
+                actor_name: _loss_request.actor_name,
+                probability: _loss_request.probability,
+            },
+            "Chaos Config Applied!",
+        )
+        .await
+    }
+    #[cfg(not(feature = "chaos"))]
+    StatusCode::NOT_IMPLEMENTED.into_response()
 }
 
 #[cfg_attr(feature="swagger", utoipa::path(
     post,
     path = "/set_msg_delay",
+    tag = "chaos",
     responses(
-        (status = 200, description = "Msg Delay Config Applied")
+        (status = 200, description = "Msg Delay Config Applied"),
+        (status = 404, description = "Actor not found"),
+        (status = 500, description = "The node controller is not running")
     )
 ))]
 async fn set_msg_delay(
-    State(state): State<Arc<AppState>>,
-    Json(delay_request): Json<MsgDelayRequest>,
-) -> impl IntoResponse {
-    state
-        .clone()
-        .tx
-        .send(JobControllerReq::MsgDelay {
-            actor_name: delay_request.actor_name,
-            senders: delay_request.senders,
-            delay_range_ms: (
-                delay_request.delay_range_start,
-                delay_request.delay_range_end,
-            ),
-        })
-        .unwrap();
-    (axum::http::StatusCode::OK, "Chaos Config Applied!")
+    State(_state): State<Arc<AppState>>,
+    Json(_delay_request): Json<MsgDelayRequest>,
+) -> Response {
+    #[cfg(feature = "chaos")]
+    {
+        apply_chaos(
+            &_state,
+            _delay_request.actor_name.clone(),
+            ChaosMsg::MsgDelay {
+                actor_name: _delay_request.actor_name,
+                senders: _delay_request.senders,
+                delay_range_ms: (
+                    _delay_request.delay_range_start,
+                    _delay_request.delay_range_end,
+                ),
+            },
+            "Chaos Config Applied!",
+        )
+        .await
+    }
+    #[cfg(not(feature = "chaos"))]
+    StatusCode::NOT_IMPLEMENTED.into_response()
 }
 
 #[cfg_attr(feature="swagger", utoipa::path(
     post,
     path = "/unset_msg_duplication",
+    tag = "chaos",
     responses(
-        (status = 200, description = "Msg Duplication Config Removed")
+        (status = 200, description = "Msg Duplication Config Removed"),
+        (status = 404, description = "Actor not found"),
+        (status = 500, description = "The node controller is not running")
     )
 ))]
 async fn unset_msg_duplication(
-    State(state): State<Arc<AppState>>,
-    Json(actor_addr): Json<String>,
-) -> impl IntoResponse {
-    state
-        .clone()
-        .tx
-        .send(JobControllerReq::DisableMsgDuplication {
-            actor_name: actor_addr,
-        })
-        .unwrap();
-    (axum::http::StatusCode::OK, "Chaos Config Removed!")
+    State(_state): State<Arc<AppState>>,
+    _actor_addr: String,
+) -> Response {
+    #[cfg(feature = "chaos")]
+    {
+        apply_chaos(
+            &_state,
+            _actor_addr.clone(),
+            ChaosMsg::DisableMsgDuplication {
+                actor_name: _actor_addr,
+            },
+            "Chaos Config Removed!",
+        )
+        .await
+    }
+    #[cfg(not(feature = "chaos"))]
+    StatusCode::NOT_IMPLEMENTED.into_response()
 }
 
 #[cfg_attr(feature="swagger", utoipa::path(
     post,
     path = "/unset_msg_loss",
+    tag = "chaos",
     responses(
-        (status = 200, description = "Msg Loss Config Removed")
+        (status = 200, description = "Msg Loss Config Removed"),
+        (status = 404, description = "Actor not found"),
+        (status = 500, description = "The node controller is not running")
     )
 ))]
-async fn unset_msg_loss(
-    State(state): State<Arc<AppState>>,
-    Json(actor_addr): Json<String>,
-) -> impl IntoResponse {
-    state
-        .clone()
-        .tx
-        .send(JobControllerReq::DisableMsgLoss {
-            actor_name: actor_addr,
-        })
-        .unwrap();
-    (axum::http::StatusCode::OK, "Chaos Config Removed!")
+async fn unset_msg_loss(State(_state): State<Arc<AppState>>, _actor_addr: String) -> Response {
+    #[cfg(feature = "chaos")]
+    {
+        apply_chaos(
+            &_state,
+            _actor_addr.clone(),
+            ChaosMsg::DisableMsgLoss {
+                actor_name: _actor_addr,
+            },
+            "Chaos Config Removed!",
+        )
+        .await
+    }
+    #[cfg(not(feature = "chaos"))]
+    StatusCode::NOT_IMPLEMENTED.into_response()
 }
 
 #[cfg_attr(feature="swagger", utoipa::path(
     post,
     path = "/unset_msg_delay",
+    tag = "chaos",
     responses(
-        (status = 200, description = "Msg Delay Config Removed")
+        (status = 200, description = "Msg Delay Config Removed"),
+        (status = 404, description = "Actor not found"),
+        (status = 500, description = "The node controller is not running")
     )
 ))]
 async fn unset_msg_delay(
-    State(state): State<Arc<AppState>>,
-    Json(disable_delay_request): Json<DisableMsgDelayRequest>,
-) -> impl IntoResponse {
-    state
-        .clone()
-        .tx
-        .send(JobControllerReq::DisableMsgDelay {
-            actor_name: disable_delay_request.actor_name,
-            senders: disable_delay_request.senders,
-        })
-        .unwrap();
-    (axum::http::StatusCode::OK, "Chaos Config Removed!")
+    State(_state): State<Arc<AppState>>,
+    Json(_disable_delay_request): Json<DisableMsgDelayRequest>,
+) -> Response {
+    #[cfg(feature = "chaos")]
+    {
+        apply_chaos(
+            &_state,
+            _disable_delay_request.actor_name.clone(),
+            ChaosMsg::DisableMsgDelay {
+                actor_name: _disable_delay_request.actor_name,
+                senders: _disable_delay_request.senders,
+            },
+            "Chaos Config Removed!",
+        )
+        .await
+    }
+    #[cfg(not(feature = "chaos"))]
+    StatusCode::NOT_IMPLEMENTED.into_response()
 }
-#[derive(Serialize, ToSchema)]
-struct StatusResponse {
-    actors: Vec<String>,
-    loaded_libs: HashMap<String, Vec<String>>,
-}
-#[cfg_attr(feature="swagger", utoipa::path(
-    get,
-    path = "/status",
-    responses(
-        (status = 200, description = "Status of the node", body = StatusResponse)
-    )
-))]
-async fn get_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    state
-        .tx
-        .send(JobControllerReq::GetStatus { resp_tx: tx })
-        .unwrap();
-    let result = rx.await.unwrap();
-    (
-        axum::http::StatusCode::OK,
-        Json(StatusResponse {
-            actors: result.actors,
-            loaded_libs: result.loaded_libs,
-        }),
-    )
-}
+
+//////////////////////////////////////////////////////////////////////
 
 #[cfg(feature = "swagger")]
 #[derive(OpenApi)]
-#[openapi(paths(
-    start_actor,
-    actor_added,
-    register_lib,
-    stop_actor,
-    stop_all_actors,
-    set_duplication,
-    set_msg_loss,
-    set_msg_delay,
-    unset_msg_duplication,
-    unset_msg_loss,
-    unset_msg_delay,
-    get_status
-))]
+#[openapi(
+    paths(
+        build_lib,
+        clear_build_cache,
+        cancel_builds,
+        cancel_build,
+        start_actor,
+        actor_added,
+        stop_actor,
+        stop_all_actors,
+        get_status,
+        set_duplication,
+        set_msg_loss,
+        set_msg_delay,
+        unset_msg_duplication,
+        unset_msg_loss,
+        unset_msg_delay,
+    ),
+    tags(
+        (name = "compile", description = "Compile dynamic operator libraries"),
+        (name = "actor_lifecycle", description = "Spawn, stop, and inspect actors"),
+        (name = "chaos", description = "Inject message faults for chaos testing"),
+    )
+)]
 struct ApiDoc;
 
-pub async fn webserver(job_control_tx: UnboundedSender<JobControllerReq>, port: u16) {
+/// Checks the configuration and binds the API's listener.
+pub(crate) async fn listen(config: &NodeConfig) -> std::io::Result<tokio::net::TcpListener> {
+    config
+        .validate()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
+    let addr = SocketAddr::new(config.bind, config.port);
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .map_err(|e| std::io::Error::new(e.kind(), format!("cannot listen on {addr}: {e}")))?;
+    let auth = if config.auth_token.is_some() {
+        "bearer token required"
+    } else {
+        "no auth"
+    };
+    println!("\nWill Now Listen on {addr} ({auth})");
+    Ok(listener)
+}
+
+/// Answers 401 unless the request carries the node's token.
+async fn require_token(
+    State(config): State<Arc<NodeConfig>>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    if config.authorized(request.headers().get(header::AUTHORIZATION)) {
+        next.run(request).await
+    } else {
+        let mut response = error(StatusCode::UNAUTHORIZED, "missing or wrong auth token");
+        response.headers_mut().insert(
+            header::WWW_AUTHENTICATE,
+            header::HeaderValue::from_static("Bearer"),
+        );
+        response
+    }
+}
+
+pub async fn webserver(
+    job_control_tx: UnboundedSender<JobControllerReq>,
+    listener: tokio::net::TcpListener,
+    config: NodeConfig,
+    extension: crate::NodeExtension,
+) {
+    let config = Arc::new(config);
     let state = Arc::new(AppState { tx: job_control_tx });
     let app = Router::new()
+        // compile
+        .route("/cache", delete(clear_build_cache))
+        .route("/builds", post(build_lib))
+        .route("/builds", delete(cancel_builds))
+        .route("/builds/{lib_name}", delete(cancel_build))
+        // actor lifecycle
         .route("/status", get(get_status))
         .route("/start_actor", post(start_actor))
         .route("/actor_added", post(actor_added))
-        .route("/register_lib", post(register_lib))
-        .route("/stop_actor", post(stop_actor))
+        .route("/stop_actor/{actor_addr}", post(stop_actor))
         .route("/stop_all_actors", post(stop_all_actors))
+        // chaos
         .route("/set_duplication", post(set_duplication))
         .route("/set_msg_loss", post(set_msg_loss))
         .route("/set_msg_delay", post(set_msg_delay))
         .route("/unset_msg_duplication", post(unset_msg_duplication))
         .route("/unset_msg_loss", post(unset_msg_loss))
         .route("/unset_msg_delay", post(unset_msg_delay))
+        .with_state(state)
+        .merge(extension.router);
+    let cors_config = config.clone();
+    let app = app
+        // last resort: a panicking handler answers 500 instead of dropping the connection
+        .layer(CatchPanicLayer::new())
+        // inside the CORS layer, which answers browsers' preflight requests without a token
+        .layer(middleware::from_fn_with_state(config, require_token))
         .layer(
             CorsLayer::new()
-                .allow_origin(Any)       // allow all origins
-                .allow_methods(Any)      // allow all methods (GET, POST, etc.)
-                .allow_headers(Any),     // allow all headers
+                .allow_origin(AllowOrigin::predicate(move |origin, _| {
+                    cors_config.origin_allowed(origin)
+                }))
+                .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
+                .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION]),
         )
-        .with_state(state)
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|request: &Request<_>| {
@@ -509,10 +834,25 @@ pub async fn webserver(job_control_tx: UnboundedSender<JobControllerReq>, port: 
         );
 
     #[cfg(feature = "swagger")]
-    let app = app.merge(SwaggerUi::new("/docs").url("/api-doc/openapi.json", ApiDoc::openapi()));
+    let app = {
+        use utoipa::openapi::security::{
+            HttpAuthScheme, HttpBuilder, SecurityRequirement, SecurityScheme,
+        };
+        let mut doc = ApiDoc::openapi();
+        doc.merge(extension.openapi);
+        // every route, including the extension's, sits behind `require_token`
+        doc.components
+            .get_or_insert_with(Default::default)
+            .add_security_scheme(
+                "bearer_auth",
+                SecurityScheme::Http(HttpBuilder::new().scheme(HttpAuthScheme::Bearer).build()),
+            );
+        doc.security = Some(vec![SecurityRequirement::new(
+            "bearer_auth",
+            Vec::<String>::new(),
+        )]);
+        app.merge(SwaggerUi::new("/docs").url("/api-doc/openapi.json", doc))
+    };
 
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}"))
-        .await
-        .unwrap();
     axum::serve(listener, app).await.unwrap();
 }

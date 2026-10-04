@@ -249,6 +249,8 @@ impl NodeHandle {
 pub struct JobController<PM> {
     pm: PM,
     nodes: BTreeMap<String, NodeHandle>,
+    /// Sent to every node as `Authorization: Bearer <token>`.
+    auth_token: Option<String>,
 }
 
 impl<PM: PlacementManager> JobController<PM> {
@@ -256,7 +258,15 @@ impl<PM: PlacementManager> JobController<PM> {
         JobController {
             pm,
             nodes: BTreeMap::new(),
+            auth_token: None,
         }
+    }
+
+    /// Authenticates to the nodes with this token (see the nodes' `--auth-token`). Call before
+    /// registering nodes.
+    pub fn with_auth_token(mut self, token: Option<String>) -> Self {
+        self.auth_token = token;
+        self
     }
     pub fn register_node(&mut self, name: &str, hostname: Hostname, port: u16) {
         self.nodes.insert(
@@ -328,8 +338,19 @@ impl<PM: PlacementManager> JobController<PM> {
         hostname: Hostname,
         port: u16,
     ) -> reactor_client::apis::configuration::Configuration {
+        let mut headers = reqwest::header::HeaderMap::new();
+        if let Some(token) = &self.auth_token {
+            let mut value = reqwest::header::HeaderValue::from_str(&format!("Bearer {token}"))
+                .expect("the auth token is not a valid header value");
+            value.set_sensitive(true);
+            headers.insert(reqwest::header::AUTHORIZATION, value);
+        }
         reactor_client::apis::configuration::Configuration {
             base_path: format!("http://{hostname}:{port}"),
+            client: reqwest::Client::builder()
+                .default_headers(headers)
+                .build()
+                .expect("cannot create the HTTP client"),
             ..Default::default()
         }
     }

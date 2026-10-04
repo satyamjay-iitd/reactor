@@ -2,15 +2,14 @@
 //! node_controller logic
 
 use clap::Parser;
-use reactor_node::node_controller;
+use reactor_node::{NodeArgs, NodeExtension, node_controller};
 use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "Node Controller", about = "Run reactor Node controller")]
 pub struct Cli {
-    /// Port to run the reactor node on
-    #[arg(short, long)]
-    pub port: u16,
+    #[command(flatten)]
+    pub node: NodeArgs,
 
     /// Directory path
     pub dir: PathBuf,
@@ -31,5 +30,8 @@ async fn main() {
         Builder::new().filter_level(LevelFilter::Info).init();
     }
 
-    node_controller(cli.port, cli.dir).await;
+    if let Err(e) = node_controller(cli.node.into(), cli.dir, NodeExtension::empty()).await {
+        eprintln!("error: {e}");
+        std::process::exit(1);
+    }
 }

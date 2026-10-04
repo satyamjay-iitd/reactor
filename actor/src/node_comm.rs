@@ -25,7 +25,8 @@ pub enum ControlReq {
 /// Instructions that are sent by the local controller to the actor
 pub enum ControlInst {
     StartLocalRecv(LocalChannelRx),
-    StartTcpRecv(u16),
+    /// Listen for messages from actors on other nodes on this address.
+    StartTcpRecv(SocketAddr),
     Stop,
     SetMsgLoss {
         probability: f32,
