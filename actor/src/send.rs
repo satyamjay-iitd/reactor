@@ -294,9 +294,16 @@ async fn sender_task<M, E>(
                             let (_, tx) = s.into_split();
                             break tx;
                         }
-                        Err(_) => {
+                        Err(e) => {
+                            // The receiver may not be listening yet (it is
+                            // still being built on its node); retry.
+                            log::warn!(
+                                "[ACTOR] can't connect to {} at {}: {}; retrying",
+                                send_addr,
+                                socket_addr,
+                                e
+                            );
                             tokio::time::sleep(Duration::from_millis(500)).await;
-                            todo!();
                         }
                     }
                 };
