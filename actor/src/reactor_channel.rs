@@ -66,9 +66,9 @@ pub enum ReactorChannelRx<T> {
     MultiChannel(PriorityChannelRx<T>),
 }
 impl<T> ReactorChannelRx<T> {
-    pub fn recv(&mut self) -> Option<T> {
+    pub async fn recv(&mut self) -> Option<T> {
         match self {
-            ReactorChannelRx::SingleChannel(receiver) => receiver.blocking_recv(),
+            ReactorChannelRx::SingleChannel(receiver) => receiver.recv().await,
             ReactorChannelRx::MultiChannel(priority_channel_rx) => loop {
                 match priority_channel_rx.try_recv() {
                     Ok(msg) => {
