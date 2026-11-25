@@ -607,82 +607,85 @@ where
 
         let addr = ctx.addr;
         let mut chaos_manager = chaos_manager::ChaosManager::new();
-        let proc_handle: JoinHandle<Result<(), ActorError>> = tokio::task::spawn(async move {
-            tracing::info!("[ACTOR][{}] Processor Started", addr);
-            loop {
-                match r2p_rx.recv().await {
-                    Some(R2PMsg::Msg(m, origin)) => {
-                        // Dont apply chaos to messages comming from generator
-                        let chaos_out = if origin.is_empty() {
-                            vec![m]
-                        } else {
-                            chaos_manager.apply_chaos(m)
-                        };
-                        let chaos_out_len = chaos_out.len();
-                        if chaos_out_len > 1 {
-                            tracing::warn!(
-                                "[ACTOR][{}] Message Duplicated {} times",
-                                addr,
-                                chaos_out_len
-                            );
-                        } else if chaos_out_len == 0 {
-                            tracing::warn!("[ACTOR][{}] Message Lost", addr);
-                        }
-                        for msg in chaos_out {
-                            let processed = processor.process(msg);
-                            for o in processed {
-                                p2s_tx
-                                    .send((o, origin))
-                                    .await
-                                    .map_err(|_| ActorError::P2SErr)?;
+        // The processor runs on a thread of its own: process() may block (e.g.
+        // on a GPU or a decoder) for as long as it needs to, without holding up
+        // the runtime's async tasks, such as this actor's receiver and sender.
+        let proc_handle: JoinHandle<Result<(), ActorError>> =
+            tokio::task::spawn_blocking(move || -> Result<(), ActorError> {
+                tracing::info!("[ACTOR][{}] Processor Started", addr);
+                loop {
+                    match r2p_rx.recv() {
+                        Some(R2PMsg::Msg(m, origin)) => {
+                            // Dont apply chaos to messages comming from generator
+                            let chaos_out = if origin.is_empty() {
+                                vec![m]
+                            } else {
+                                chaos_manager.apply_chaos(m)
+                            };
+                            let chaos_out_len = chaos_out.len();
+                            if chaos_out_len > 1 {
+                                tracing::warn!(
+                                    "[ACTOR][{}] Message Duplicated {} times",
+                                    addr,
+                                    chaos_out_len
+                                );
+                            } else if chaos_out_len == 0 {
+                                tracing::warn!("[ACTOR][{}] Message Lost", addr);
+                            }
+                            for msg in chaos_out {
+                                let processed = processor.process(msg);
+                                for o in processed {
+                                    p2s_tx
+                                        .blocking_send((o, origin))
+                                        .map_err(|_| ActorError::P2SErr)?;
+                                }
                             }
                         }
-                    }
-                    Some(R2PMsg::AddPrio(new_rx)) => {
-                        r2p_rx = r2p_rx.add_prio(new_rx);
-                    }
-                    Some(R2PMsg::RemoveLowPrio) => {
-                        r2p_rx = r2p_rx.remove_prio();
-                    }
-                    Some(R2PMsg::Exit) => {
-                        break;
-                    }
-                    Some(R2PMsg::SetMsgDuplication {
-                        factor,
-                        probability,
-                    }) => {
-                        tracing::info!(
-                            "[ACTOR][{}] Setting Msg Duplication: factor={}, probability={}",
-                            addr,
+                        Some(R2PMsg::AddPrio(new_rx)) => {
+                            r2p_rx = r2p_rx.add_prio(new_rx);
+                        }
+                        Some(R2PMsg::RemoveLowPrio) => {
+                            r2p_rx = r2p_rx.remove_prio();
+                        }
+                        Some(R2PMsg::Exit) => {
+                            break;
+                        }
+                        Some(R2PMsg::SetMsgDuplication {
                             factor,
-                            probability
-                        );
-                        chaos_manager.set_msg_duplication(factor, probability);
-                    }
-                    Some(R2PMsg::SetMsgLoss { probability }) => {
-                        tracing::info!(
-                            "[ACTOR][{}] Setting Msg Loss: probability={}",
-                            addr,
-                            probability
-                        );
-                        chaos_manager.set_msg_loss(probability);
-                    }
-                    Some(R2PMsg::UnsetMsgLoss) => {
-                        tracing::info!("[ACTOR][{}] Unsetting Msg Loss", addr);
-                        chaos_manager.unset_msg_loss();
-                    }
-                    Some(R2PMsg::UnsetMsgDuplication) => {
-                        tracing::info!("[ACTOR][{}] Unsetting Msg Duplication", addr);
-                        chaos_manager.unset_msg_duplication();
-                    }
-                    None => {
-                        break;
+                            probability,
+                        }) => {
+                            tracing::info!(
+                                "[ACTOR][{}] Setting Msg Duplication: factor={}, probability={}",
+                                addr,
+                                factor,
+                                probability
+                            );
+                            chaos_manager.set_msg_duplication(factor, probability);
+                        }
+                        Some(R2PMsg::SetMsgLoss { probability }) => {
+                            tracing::info!(
+                                "[ACTOR][{}] Setting Msg Loss: probability={}",
+                                addr,
+                                probability
+                            );
+                            chaos_manager.set_msg_loss(probability);
+                        }
+                        Some(R2PMsg::UnsetMsgLoss) => {
+                            tracing::info!("[ACTOR][{}] Unsetting Msg Loss", addr);
+                            chaos_manager.unset_msg_loss();
+                        }
+                        Some(R2PMsg::UnsetMsgDuplication) => {
+                            tracing::info!("[ACTOR][{}] Unsetting Msg Duplication", addr);
+                            chaos_manager.unset_msg_duplication();
+                        }
+                        None => {
+                            break;
+                        }
                     }
                 }
-            }
-            tracing::info!("[ACTOR][{}] Processor Ended", addr);
-            Ok(())
-        });
+                tracing::info!("[ACTOR][{}] Processor Ended", addr);
+                Ok(())
+            });
         let tx_handle = tokio::spawn(tx(
             ctx.addr,
             sender,
@@ -709,4 +712,90 @@ where
         p_tx.send(R2PMsg::Msg(m, "")).await.unwrap();
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
+        time::{Duration, Instant},
+    };
+
+    use super::*;
+    use crate::codec::BincodeCodec;
+
+    #[derive(Debug, Clone, PartialEq, bincode::Encode, bincode::Decode)]
+    struct Num(u32);
+    impl HasPriority for Num {}
+    impl Msg for Num {}
+
+    /// Blocks the thread for `sleep` per message, then counts it.
+    struct Blocking {
+        sleep: Duration,
+        done: Arc<AtomicUsize>,
+    }
+    impl ActorProcess for Blocking {
+        type IMsg = Num;
+        type OMsg = Num;
+        fn process(&mut self, _input: Num) -> Vec<Num> {
+            std::thread::sleep(self.sleep);
+            self.done.fetch_add(1, Ordering::Relaxed);
+            vec![]
+        }
+    }
+
+    /// An actor processing `n` generated messages, and its control channel.
+    fn start(
+        name: &'static str,
+        n: u32,
+        sleep: Duration,
+        done: Arc<AtomicUsize>,
+    ) -> (
+        JoinHandle<Result<(), ActorError>>,
+        mpsc::Sender<ControlInst>,
+    ) {
+        let behaviour = BehaviourBuilder::new(
+            Blocking { sleep, done },
+            BincodeCodec::<Num, Num>::default(),
+        )
+        .generator((0..n).map(Num))
+        .build();
+        let (control_tx, control_rx) = mpsc::channel(4);
+        let (req_tx, _req_rx) = mpsc::channel(4);
+        let ctx = RuntimeCtx::new(name, NodeComm::new(control_rx, req_tx));
+        (tokio::spawn(behaviour.run(ctx)), control_tx)
+    }
+
+    // One runtime thread: an async processor that blocks would hold it.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_blocking_processor_doesnt_hold_up_other_actors() {
+        let slow_done = Arc::new(AtomicUsize::new(0));
+        let fast_done = Arc::new(AtomicUsize::new(0));
+        let (slow, slow_ctl) = start("slow", 1, Duration::from_secs(1), slow_done.clone());
+        let start_at = Instant::now();
+        let (fast, fast_ctl) = start("fast", 50, Duration::ZERO, fast_done.clone());
+        while fast_done.load(Ordering::Relaxed) < 50 {
+            assert!(
+                start_at.elapsed() < Duration::from_millis(500),
+                "the fast actor waited for the slow one: {} of 50 done",
+                fast_done.load(Ordering::Relaxed)
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert_eq!(
+            slow_done.load(Ordering::Relaxed),
+            0,
+            "the slow one is still busy"
+        );
+
+        for ctl in [slow_ctl, fast_ctl] {
+            ctl.send(ControlInst::Stop).await.unwrap();
+        }
+        fast.await.unwrap().unwrap();
+        slow.await.unwrap().unwrap();
+        assert_eq!(slow_done.load(Ordering::Relaxed), 1);
+    }
 }
