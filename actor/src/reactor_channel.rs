@@ -91,6 +91,14 @@ impl<T> ReactorChannelRx<T> {
         }
     }
 
+    /// Messages waiting, at every priority.
+    pub(crate) fn len(&self) -> usize {
+        match self {
+            ReactorChannelRx::SingleChannel(receiver) => receiver.len(),
+            ReactorChannelRx::MultiChannel(p) => p.receivers.iter().map(|r| r.len()).sum(),
+        }
+    }
+
     pub(crate) fn add_prio(self, new_rx: Receiver<T>) -> Self {
         match self {
             ReactorChannelRx::SingleChannel(receiver) => {

@@ -1,4 +1,12 @@
-use std::{any::Any, collections::HashMap, time::Duration};
+use std::{
+    any::Any,
+    collections::HashMap,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering::Relaxed},
+    },
+    time::Duration,
+};
 
 use futures::SinkExt as _;
 use tokio::{
@@ -12,12 +20,14 @@ use tokio_util::codec::{Encoder, FramedWrite};
 use crate::{
     ActorAddr, ActorSend, CHANNEL_SIZE, Msg, RouteTo, SendErrAction,
     codec::ErrWithMsg,
+    metrics::{ActorMetrics, PeerMetrics},
     node_comm::{Connection, ControlReq},
 };
 
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(crate) async fn tx<M, E, BS>(
     my_addr: &'static str,
+    metrics: std::sync::Arc<ActorMetrics>,
     before_send: Option<BS>,
     ask_receiver_to_adapt: bool,
     mut p_rx: mpsc::Receiver<(M, &'static str)>,
@@ -42,6 +52,7 @@ pub(crate) async fn tx<M, E, BS>(
                 RouteTo::Reply => {
                     send_msg(
                         my_addr,
+                        &metrics,
                         ask_receiver_to_adapt,
                         controller_tx.clone(),
                         codec.clone(),
@@ -56,6 +67,7 @@ pub(crate) async fn tx<M, E, BS>(
                 RouteTo::Single(send_to) => {
                     send_msg(
                         my_addr,
+                        &metrics,
                         ask_receiver_to_adapt,
                         controller_tx.clone(),
                         codec.clone(),
@@ -75,6 +87,7 @@ pub(crate) async fn tx<M, E, BS>(
                     for addr in &receivers[..num_receivers - 1] {
                         send_msg(
                             my_addr,
+                            &metrics,
                             ask_receiver_to_adapt,
                             controller_tx.clone(),
                             codec.clone(),
@@ -88,6 +101,7 @@ pub(crate) async fn tx<M, E, BS>(
                     }
                     send_msg(
                         my_addr,
+                        &metrics,
                         ask_receiver_to_adapt,
                         controller_tx.clone(),
                         codec.clone(),
@@ -112,6 +126,7 @@ pub(crate) async fn tx<M, E, BS>(
 #[inline(always)]
 async fn send_msg<M, E>(
     my_addr: &'static str,
+    metrics: &ActorMetrics,
     ask_receiver_to_adapt: bool,
     controller_tx: mpsc::Sender<ControlReq>,
     codec: E,
@@ -133,6 +148,7 @@ async fn send_msg<M, E>(
         let (tx, rx) = mpsc::channel::<M>(CHANNEL_SIZE);
         sub_senders.spawn(sender_task(
             my_addr,
+            metrics.peer(addr),
             ask_receiver_to_adapt,
             (*addr).to_string(),
             rx,
@@ -148,8 +164,10 @@ async fn send_msg<M, E>(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn sender_task<M, E>(
     my_addr: &'static str,
+    peer: PeerMetrics,
     ask_receiver_to_adapt: bool,
     send_addr: ActorAddr,
     rx: mpsc::Receiver<M>,
@@ -163,6 +181,7 @@ async fn sender_task<M, E>(
 {
     async fn remote_sender<C, M>(
         my_addr: &'static str,
+        peer: PeerMetrics,
         ask_receiver_to_adapt: bool,
         mut tx: impl AsyncWrite + Unpin,
         mut rx: mpsc::Receiver<M>,
@@ -176,16 +195,25 @@ async fn sender_task<M, E>(
         log::info!("[ACTOR] SubTx Started");
         let decoder_name = std::any::type_name::<M>().to_string();
         send_remote_handshake(&mut tx, my_addr, decoder_name, ask_receiver_to_adapt).await;
-        let mut framed_writer = FramedWrite::new(tx, encoder);
+        let last_size = Arc::new(AtomicUsize::new(0));
+        let mut framed_writer = FramedWrite::new(
+            tx,
+            Sized_ {
+                inner: encoder,
+                last: last_size.clone(),
+            },
+        );
 
         while let Some(msg) = rx.recv().await {
             let Err(e) = framed_writer.send(msg).await else {
+                peer.sent(Some(last_size.load(Relaxed)));
                 continue;
             };
             let mut failed_msg = e.into_inner().unwrap();
             match on_send_failure {
                 SendErrAction::Drop => {
                     log::warn!("[ACTOR] {} Failed to send message, dropping", my_addr);
+                    peer.failed();
                 }
                 SendErrAction::Retry {
                     attempts: retries_opt,
@@ -200,6 +228,7 @@ async fn sender_task<M, E>(
                                 "[ACTOR] {} Failed to send message, retries exhausted",
                                 my_addr
                             );
+                            peer.failed();
                             break;
                         }
 
@@ -216,6 +245,7 @@ async fn sender_task<M, E>(
                             tokio::time::sleep(Duration::from_millis(delay_ms)).await;
                             continue;
                         } else {
+                            peer.sent(Some(last_size.load(Relaxed)));
                             break;
                         }
                     }
@@ -231,6 +261,7 @@ async fn sender_task<M, E>(
     ///   `tx` delivers them to the actor. They don’t correlate directly.
     async fn local_sender<M: std::fmt::Debug + Send + 'static + Clone>(
         my_addr: &'static str,
+        peer: PeerMetrics,
         ask_receiver_to_adapt: bool,
         tx: mpsc::Sender<Box<dyn Any + Send>>,
         mut rx: mpsc::Receiver<M>,
@@ -241,12 +272,14 @@ async fn sender_task<M, E>(
         send_local_handshake(&tx, my_addr, decoder_name, ask_receiver_to_adapt).await;
         while let Some(msg) = rx.recv().await {
             let Err(e) = tx.send(Box::new(msg)).await else {
+                peer.sent(None);
                 continue;
             };
             let mut failed_msg: M = *e.0.downcast::<M>().unwrap();
             match on_send_failure {
                 SendErrAction::Drop => {
                     log::warn!("[ACTOR] {} Failed to send message, dropping", my_addr);
+                    peer.failed();
                 }
                 SendErrAction::Retry {
                     attempts: retries_opt,
@@ -261,6 +294,7 @@ async fn sender_task<M, E>(
                                 "[ACTOR] {} Failed to send message, retries exhausted",
                                 my_addr
                             );
+                            peer.failed();
                             break;
                         }
 
@@ -276,6 +310,7 @@ async fn sender_task<M, E>(
                             tokio::time::sleep(Duration::from_millis(delay_ms)).await;
                             continue;
                         } else {
+                            peer.sent(None);
                             break;
                         }
                     }
@@ -321,6 +356,7 @@ async fn sender_task<M, E>(
 
                 remote_sender(
                     my_addr,
+                    peer,
                     ask_receiver_to_adapt,
                     tx,
                     rx,
@@ -333,6 +369,7 @@ async fn sender_task<M, E>(
             Connection::Local(write_half) => {
                 local_sender(
                     my_addr,
+                    peer,
                     ask_receiver_to_adapt,
                     write_half,
                     rx,
@@ -343,6 +380,7 @@ async fn sender_task<M, E>(
             }
             Connection::CouldntResolve => match on_send_failure {
                 SendErrAction::Drop => {
+                    peer.failed();
                     log::warn!(
                         "[ACTOR] {} Failed to resolve {}, dropping",
                         my_addr,
@@ -375,6 +413,29 @@ async fn sender_task<M, E>(
                 }
             },
         };
+    }
+}
+
+/// An encoder that keeps the size of the last message it encoded.
+#[derive(Clone)]
+#[allow(non_camel_case_types)]
+struct Sized_<C> {
+    inner: C,
+    last: Arc<AtomicUsize>,
+}
+
+impl<C: Encoder<M>, M> Encoder<M> for Sized_<C> {
+    type Error = C::Error;
+
+    fn encode(
+        &mut self,
+        item: M,
+        dst: &mut tokio_util::bytes::BytesMut,
+    ) -> Result<(), Self::Error> {
+        let before = dst.len();
+        self.inner.encode(item, dst)?;
+        self.last.store(dst.len() - before, Relaxed);
+        Ok(())
     }
 }
 
@@ -443,9 +504,11 @@ mod tests {
         });
         let mut buffers = HashMap::new();
         let mut senders = JoinSet::new();
+        let metrics = ActorMetrics::new();
         for i in 0..3 {
             send_msg(
                 "me",
+                &metrics,
                 false,
                 controller_tx.clone(),
                 BincodeCodec::<Num, Num>::default(),
@@ -462,5 +525,16 @@ mod tests {
         for i in 0..3 {
             assert_eq!(received(&mut local_rx).await, Num(i));
         }
+        // Counted as sent to "you" (just after it's delivered); nothing is
+        // encoded for a local actor.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        let sent = loop {
+            let sent = metrics.snapshot().sent["you"].clone();
+            if sent.messages == 3 || tokio::time::Instant::now() > deadline {
+                break sent;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        };
+        assert_eq!((sent.messages, sent.bytes, sent.failed), (3, 0, 0));
     }
 }
