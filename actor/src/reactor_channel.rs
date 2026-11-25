@@ -66,15 +66,21 @@ pub enum ReactorChannelRx<T> {
     MultiChannel(PriorityChannelRx<T>),
 }
 impl<T> ReactorChannelRx<T> {
-    pub async fn recv(&mut self) -> Option<T> {
+    /// The next message, highest priority first; blocks the thread until
+    /// there is one, so call it from a blocking task (`spawn_blocking`), not
+    /// from async code.
+    pub fn recv(&mut self) -> Option<T> {
         match self {
-            ReactorChannelRx::SingleChannel(receiver) => receiver.recv().await,
+            ReactorChannelRx::SingleChannel(receiver) => receiver.blocking_recv(),
             ReactorChannelRx::MultiChannel(priority_channel_rx) => loop {
                 match priority_channel_rx.try_recv() {
                     Ok(msg) => {
                         return Some(msg);
                     }
                     Err(TryRecvError::Empty) => {
+                        // Polls every priority in turn; let other threads run
+                        // between rounds rather than spin flat out.
+                        std::thread::yield_now();
                         continue;
                     }
                     Err(TryRecvError::Disconnected) => {
@@ -82,6 +88,14 @@ impl<T> ReactorChannelRx<T> {
                     }
                 }
             },
+        }
+    }
+
+    /// Messages waiting, at every priority.
+    pub(crate) fn len(&self) -> usize {
+        match self {
+            ReactorChannelRx::SingleChannel(receiver) => receiver.len(),
+            ReactorChannelRx::MultiChannel(p) => p.receivers.iter().map(|r| r.len()).sum(),
         }
     }
 

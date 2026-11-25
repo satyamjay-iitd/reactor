@@ -1,8 +1,8 @@
 //! One Node Controller task will be spawned on each physical nodes.
 use op_lib_manager::OpLibrary;
-use reactor_actor::{Connection, ControlInst, ControlReq, NodeComm, RuntimeCtx};
+use reactor_actor::{ActorMetrics, Connection, ControlInst, ControlReq, NodeComm, RuntimeCtx};
 use std::net::SocketAddr;
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use tokio::sync::{
     mpsc::{self, Sender, channel},
     oneshot,
@@ -60,6 +60,7 @@ mod dyn_op;
 pub use dyn_op::node_controller_cg;
 
 mod config;
+mod metrics;
 mod op_lib_manager;
 mod rpc;
 
@@ -122,6 +123,10 @@ pub(crate) enum ActorLifeCycle {
     StopAllActors,
     GetStatus {
         resp_tx: oneshot::Sender<NodeStatus>,
+    },
+    /// Every local actor's metrics.
+    GetMetrics {
+        resp_tx: oneshot::Sender<Vec<metrics::ActorReport>>,
     },
 }
 
@@ -192,6 +197,10 @@ pub(crate) enum JobControllerReq {
 
 struct LocalActor {
     handle: Sender<ControlInst>,
+    op: String,
+    lib: String,
+    /// What the actor counts into.
+    metrics: Arc<ActorMetrics>,
 }
 struct RemoteActor {
     remote_actor_addr: SocketAddr,
@@ -279,9 +288,11 @@ async fn spawn_actor(
     }
     let op = op_lib.get_op(lib_name, op_name)?;
     let (control_tx, control_rx) = channel(20);
-    let ctx = RuntimeCtx::new(
+    let metrics = ActorMetrics::new();
+    let ctx = RuntimeCtx::with_metrics(
         addr.to_string().leak(),
         NodeComm::new(control_rx, actor_control_tx.clone()),
+        metrics.clone(),
     );
     op(ctx, payload).map_err(|message| SpawnError::OperatorFailed {
         op: op_name.to_string(),
@@ -294,7 +305,15 @@ async fn spawn_actor(
             op: op_name.to_string(),
             message: "the actor exited while starting".to_string(),
         })?;
-    local_actors.insert(addr.to_string(), LocalActor { handle: control_tx });
+    local_actors.insert(
+        addr.to_string(),
+        LocalActor {
+            handle: control_tx,
+            op: op_name.to_string(),
+            lib: lib_name.to_string(),
+            metrics,
+        },
+    );
     Ok(SpawnResult {
         port: data_addr.port(),
     })
@@ -403,6 +422,19 @@ async fn handle_actor_lc(
                 loaded_libs: op_lib.lib_names(),
             });
         }
+        ActorLifeCycle::GetMetrics { resp_tx } => {
+            let mut reports: Vec<_> = local_actors
+                .iter()
+                .map(|(name, a)| metrics::ActorReport {
+                    actor: name.clone(),
+                    op: a.op.clone(),
+                    lib: a.lib.clone(),
+                    metrics: a.metrics.snapshot(),
+                })
+                .collect();
+            reports.sort_by(|a, b| a.actor.cmp(&b.actor));
+            let _ = resp_tx.send(reports);
+        }
     }
 }
 
@@ -449,7 +481,12 @@ mod tests {
 
     fn local_actor() -> LocalActor {
         let (handle, _rx) = channel(1);
-        LocalActor { handle }
+        LocalActor {
+            handle,
+            op: "op".into(),
+            lib: "lib".into(),
+            metrics: ActorMetrics::new(),
+        }
     }
 
     async fn spawn(

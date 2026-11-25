@@ -1,6 +1,6 @@
 // #![feature(log_syntax)]
 
-use std::{borrow::Cow, collections::HashMap, marker::PhantomData};
+use std::{borrow::Cow, collections::HashMap, marker::PhantomData, sync::Arc, time::Instant};
 
 use bincode::{Decode, Encode};
 use err::ActorError;
@@ -20,11 +20,13 @@ pub use tracing_shared::setup_shared_logger_ref;
 mod chaos_manager;
 pub mod codec;
 pub mod err;
+pub mod metrics;
 mod node_comm;
 mod reactor_channel;
 mod recv;
 mod send;
 
+pub use metrics::{ActorMetrics, ActorState, MetricsSnapshot};
 pub use node_comm::{Connection, ControlInst, ControlReq, NodeComm};
 pub use reactor_channel::{HasPriority, MAX_PRIO};
 pub use reactor_macros::actor;
@@ -558,11 +560,33 @@ impl<R, P, S, M, MCD> Behaviour<R, P, S, M, MCD> {
 pub struct RuntimeCtx {
     pub addr: &'static str,
     pub node_comm: NodeComm,
+    /// Counted into as the actor runs; the node reads it for `/metrics`.
+    metrics: Arc<ActorMetrics>,
 }
 
 impl RuntimeCtx {
+    /// A context with metrics of its own, which no one else reads.
     pub fn new(addr: &'static str, node_comm: NodeComm) -> Self {
-        RuntimeCtx { addr, node_comm }
+        Self::with_metrics(addr, node_comm, ActorMetrics::new())
+    }
+
+    /// A context whose actor counts into `metrics`, which the node keeps.
+    pub fn with_metrics(
+        addr: &'static str,
+        node_comm: NodeComm,
+        metrics: Arc<ActorMetrics>,
+    ) -> Self {
+        RuntimeCtx {
+            addr,
+            node_comm,
+            metrics,
+        }
+    }
+
+    /// The actor's metrics, for an operator to record its own values
+    /// ([`ActorMetrics::add`], [`ActorMetrics::set`]).
+    pub fn metrics(&self) -> Arc<ActorMetrics> {
+        self.metrics.clone()
     }
 }
 
@@ -576,8 +600,16 @@ where
     MCD: Encoder<OM> + Decoder<Item = IM, Error = std::io::Error> + Send + Sync + Clone + 'static,
     <MCD as Encoder<OM>>::Error: Send + 'static + ErrWithMsg<OM>,
 {
-    pub async fn run(mut self, ctx: RuntimeCtx) -> Result<(), ActorError> {
-        // let my_addr = ctx.addr.to_string();
+    pub async fn run(self, ctx: RuntimeCtx) -> Result<(), ActorError> {
+        let metrics = ctx.metrics.clone();
+        let result = self.run_counted(ctx).await;
+        metrics.ended(result.as_ref().err().map(|e| e.to_string()));
+        result
+    }
+
+    async fn run_counted(mut self, ctx: RuntimeCtx) -> Result<(), ActorError> {
+        let metrics = ctx.metrics.clone();
+        metrics.set_running();
         let (p2s_tx, p2s_rx) = mpsc::channel::<(OM, &'static str)>(CHANNEL_SIZE);
         let (r2p_tx, mut r2p_rx) = reactor_channel::<R2PMsg<IM>>(self.num_prios, CHANNEL_SIZE);
 
@@ -607,84 +639,108 @@ where
 
         let addr = ctx.addr;
         let mut chaos_manager = chaos_manager::ChaosManager::new();
-        let proc_handle: JoinHandle<Result<(), ActorError>> = tokio::task::spawn(async move {
-            tracing::info!("[ACTOR][{}] Processor Started", addr);
-            loop {
-                match r2p_rx.recv().await {
-                    Some(R2PMsg::Msg(m, origin)) => {
-                        // Dont apply chaos to messages comming from generator
-                        let chaos_out = if origin.is_empty() {
-                            vec![m]
-                        } else {
-                            chaos_manager.apply_chaos(m)
-                        };
-                        let chaos_out_len = chaos_out.len();
-                        if chaos_out_len > 1 {
-                            tracing::warn!(
-                                "[ACTOR][{}] Message Duplicated {} times",
-                                addr,
-                                chaos_out_len
-                            );
-                        } else if chaos_out_len == 0 {
-                            tracing::warn!("[ACTOR][{}] Message Lost", addr);
-                        }
-                        for msg in chaos_out {
-                            let processed = processor.process(msg);
-                            for o in processed {
-                                p2s_tx
-                                    .send((o, origin))
-                                    .await
-                                    .map_err(|_| ActorError::P2SErr)?;
+        let proc_metrics = metrics.clone();
+        let p2s_capacity = p2s_tx.max_capacity();
+        // The processor runs on a thread of its own: process() may block (e.g.
+        // on a GPU or a decoder) for as long as it needs to, without holding up
+        // the runtime's async tasks, such as this actor's receiver and sender.
+        let proc_handle: JoinHandle<Result<(), ActorError>> =
+            tokio::task::spawn_blocking(move || -> Result<(), ActorError> {
+                let metrics = proc_metrics;
+                tracing::info!("[ACTOR][{}] Processor Started", addr);
+                loop {
+                    match r2p_rx.recv() {
+                        Some(R2PMsg::Msg(m, origin)) => {
+                            metrics.received();
+                            // Dont apply chaos to messages comming from generator
+                            let chaos_out = if origin.is_empty() {
+                                vec![m]
+                            } else {
+                                chaos_manager.apply_chaos(m)
+                            };
+                            let chaos_out_len = chaos_out.len();
+                            if chaos_out_len > 1 {
+                                tracing::warn!(
+                                    "[ACTOR][{}] Message Duplicated {} times",
+                                    addr,
+                                    chaos_out_len
+                                );
+                            } else if chaos_out_len == 0 {
+                                tracing::warn!("[ACTOR][{}] Message Lost", addr);
+                            }
+                            for msg in chaos_out {
+                                let start = Instant::now();
+                                let processed = match std::panic::catch_unwind(
+                                    std::panic::AssertUnwindSafe(|| processor.process(msg)),
+                                ) {
+                                    Ok(out) => out,
+                                    Err(panic) => {
+                                        // Seen as failed now, not when it's stopped;
+                                        // then it panics as it would have.
+                                        metrics.ended(Some(format!(
+                                            "processor panicked: {}",
+                                            panic_message(panic.as_ref())
+                                        )));
+                                        std::panic::resume_unwind(panic);
+                                    }
+                                };
+                                metrics.processed(start.elapsed(), processed.len());
+                                metrics.queued(r2p_rx.len(), p2s_capacity - p2s_tx.capacity());
+                                for o in processed {
+                                    p2s_tx
+                                        .blocking_send((o, origin))
+                                        .map_err(|_| ActorError::P2SErr)?;
+                                }
                             }
                         }
-                    }
-                    Some(R2PMsg::AddPrio(new_rx)) => {
-                        r2p_rx = r2p_rx.add_prio(new_rx);
-                    }
-                    Some(R2PMsg::RemoveLowPrio) => {
-                        r2p_rx = r2p_rx.remove_prio();
-                    }
-                    Some(R2PMsg::Exit) => {
-                        break;
-                    }
-                    Some(R2PMsg::SetMsgDuplication {
-                        factor,
-                        probability,
-                    }) => {
-                        tracing::info!(
-                            "[ACTOR][{}] Setting Msg Duplication: factor={}, probability={}",
-                            addr,
+                        Some(R2PMsg::AddPrio(new_rx)) => {
+                            r2p_rx = r2p_rx.add_prio(new_rx);
+                        }
+                        Some(R2PMsg::RemoveLowPrio) => {
+                            r2p_rx = r2p_rx.remove_prio();
+                        }
+                        Some(R2PMsg::Exit) => {
+                            break;
+                        }
+                        Some(R2PMsg::SetMsgDuplication {
                             factor,
-                            probability
-                        );
-                        chaos_manager.set_msg_duplication(factor, probability);
-                    }
-                    Some(R2PMsg::SetMsgLoss { probability }) => {
-                        tracing::info!(
-                            "[ACTOR][{}] Setting Msg Loss: probability={}",
-                            addr,
-                            probability
-                        );
-                        chaos_manager.set_msg_loss(probability);
-                    }
-                    Some(R2PMsg::UnsetMsgLoss) => {
-                        tracing::info!("[ACTOR][{}] Unsetting Msg Loss", addr);
-                        chaos_manager.unset_msg_loss();
-                    }
-                    Some(R2PMsg::UnsetMsgDuplication) => {
-                        tracing::info!("[ACTOR][{}] Unsetting Msg Duplication", addr);
-                        chaos_manager.unset_msg_duplication();
-                    }
-                    None => {
-                        break;
+                            probability,
+                        }) => {
+                            tracing::info!(
+                                "[ACTOR][{}] Setting Msg Duplication: factor={}, probability={}",
+                                addr,
+                                factor,
+                                probability
+                            );
+                            chaos_manager.set_msg_duplication(factor, probability);
+                        }
+                        Some(R2PMsg::SetMsgLoss { probability }) => {
+                            tracing::info!(
+                                "[ACTOR][{}] Setting Msg Loss: probability={}",
+                                addr,
+                                probability
+                            );
+                            chaos_manager.set_msg_loss(probability);
+                        }
+                        Some(R2PMsg::UnsetMsgLoss) => {
+                            tracing::info!("[ACTOR][{}] Unsetting Msg Loss", addr);
+                            chaos_manager.unset_msg_loss();
+                        }
+                        Some(R2PMsg::UnsetMsgDuplication) => {
+                            tracing::info!("[ACTOR][{}] Unsetting Msg Duplication", addr);
+                            chaos_manager.unset_msg_duplication();
+                        }
+                        None => {
+                            break;
+                        }
                     }
                 }
-            }
-            tracing::info!("[ACTOR][{}] Processor Ended", addr);
-            Ok(())
-        });
+                tracing::info!("[ACTOR][{}] Processor Ended", addr);
+                Ok(())
+            });
         let tx_handle = tokio::spawn(tx(
             ctx.addr,
+            metrics.clone(),
             sender,
             self.receiver_should_adapt,
             p2s_rx,
@@ -709,4 +765,166 @@ where
         p_tx.send(R2PMsg::Msg(m, "")).await.unwrap();
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
+        time::{Duration, Instant},
+    };
+
+    use super::*;
+    use crate::codec::BincodeCodec;
+
+    #[derive(Debug, Clone, PartialEq, bincode::Encode, bincode::Decode)]
+    struct Num(u32);
+    impl HasPriority for Num {}
+    impl Msg for Num {}
+
+    /// Blocks the thread for `sleep` per message, then counts it.
+    struct Blocking {
+        sleep: Duration,
+        done: Arc<AtomicUsize>,
+    }
+    impl ActorProcess for Blocking {
+        type IMsg = Num;
+        type OMsg = Num;
+        fn process(&mut self, _input: Num) -> Vec<Num> {
+            std::thread::sleep(self.sleep);
+            self.done.fetch_add(1, Ordering::Relaxed);
+            vec![]
+        }
+    }
+
+    /// An actor processing `n` generated messages, and its control channel.
+    fn start_blocking(
+        name: &'static str,
+        n: u32,
+        sleep: Duration,
+        done: Arc<AtomicUsize>,
+    ) -> (
+        JoinHandle<Result<(), ActorError>>,
+        mpsc::Sender<ControlInst>,
+    ) {
+        let behaviour = BehaviourBuilder::new(
+            Blocking { sleep, done },
+            BincodeCodec::<Num, Num>::default(),
+        )
+        .generator((0..n).map(Num))
+        .build();
+        let (control_tx, control_rx) = mpsc::channel(4);
+        let (req_tx, _req_rx) = mpsc::channel(4);
+        let ctx = RuntimeCtx::new(name, NodeComm::new(control_rx, req_tx));
+        (tokio::spawn(behaviour.run(ctx)), control_tx)
+    }
+
+    // One runtime thread: an async processor that blocks would hold it.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_blocking_processor_doesnt_hold_up_other_actors() {
+        let slow_done = Arc::new(AtomicUsize::new(0));
+        let fast_done = Arc::new(AtomicUsize::new(0));
+        let (slow, slow_ctl) = start_blocking("slow", 1, Duration::from_secs(1), slow_done.clone());
+        let start_at = Instant::now();
+        let (fast, fast_ctl) = start_blocking("fast", 50, Duration::ZERO, fast_done.clone());
+        while fast_done.load(Ordering::Relaxed) < 50 {
+            assert!(
+                start_at.elapsed() < Duration::from_millis(500),
+                "the fast actor waited for the slow one: {} of 50 done",
+                fast_done.load(Ordering::Relaxed)
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert_eq!(
+            slow_done.load(Ordering::Relaxed),
+            0,
+            "the slow one is still busy"
+        );
+
+        for ctl in [slow_ctl, fast_ctl] {
+            ctl.send(ControlInst::Stop).await.unwrap();
+        }
+        fast.await.unwrap().unwrap();
+        slow.await.unwrap().unwrap();
+        assert_eq!(slow_done.load(Ordering::Relaxed), 1);
+    }
+
+    /// Gives each number twice; panics on `panic_on`.
+    struct Twice {
+        panic_on: Option<u32>,
+    }
+    impl ActorProcess for Twice {
+        type IMsg = Num;
+        type OMsg = Num;
+        fn process(&mut self, input: Num) -> Vec<Num> {
+            if Some(input.0) == self.panic_on {
+                panic!("boom at {}", input.0);
+            }
+            vec![input.clone(), input]
+        }
+    }
+
+    /// An actor whose generator gives 0..5, its metrics, and its control channel.
+    fn start(
+        panic_on: Option<u32>,
+    ) -> (
+        JoinHandle<Result<(), ActorError>>,
+        Arc<ActorMetrics>,
+        mpsc::Sender<ControlInst>,
+    ) {
+        let behaviour =
+            BehaviourBuilder::new(Twice { panic_on }, BincodeCodec::<Num, Num>::default())
+                .generator((0..5).map(Num))
+                .build();
+        let (control_tx, control_rx) = mpsc::channel(4);
+        let (req_tx, _req_rx) = mpsc::channel(4);
+        let metrics = ActorMetrics::new();
+        let ctx = RuntimeCtx::with_metrics("a", NodeComm::new(control_rx, req_tx), metrics.clone());
+        (tokio::spawn(behaviour.run(ctx)), metrics, control_tx)
+    }
+
+    async fn until(what: &str, f: impl Fn() -> bool) {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        while !f() {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "timed out waiting for {what}"
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn counts_what_it_processes_until_stopped() {
+        let (handle, metrics, control) = start(None);
+        until("5 processed", || metrics.snapshot().processed == 5).await;
+        let s = metrics.snapshot();
+        assert_eq!(s.state, ActorState::Running);
+        assert_eq!((s.received, s.processed, s.outputs), (5, 5, 10));
+        assert!(s.last_active_ms.is_some() && s.busy_ms >= 0.0);
+
+        control.send(ControlInst::Stop).await.unwrap();
+        handle.await.unwrap().unwrap();
+        assert_eq!(metrics.state(), ActorState::Stopped);
+        assert_eq!(metrics.snapshot().error, None);
+    }
+
+    #[tokio::test]
+    async fn a_panic_is_seen_as_it_happens() {
+        let (handle, metrics, control) = start(Some(2));
+        // Without stopping it: the panic is recorded as it happens.
+        until("failed", || metrics.state() == ActorState::Failed).await;
+        let error = metrics.snapshot().error.unwrap();
+        assert!(error.contains("boom at 2"), "{error}");
+        assert_eq!(metrics.snapshot().processed, 2);
+
+        // Stopping it afterwards keeps the cause.
+        let _ = control.send(ControlInst::Stop).await;
+        assert!(handle.await.unwrap().is_err());
+        assert_eq!(metrics.state(), ActorState::Failed);
+        assert!(metrics.snapshot().error.unwrap().contains("boom at 2"));
+    }
 }
