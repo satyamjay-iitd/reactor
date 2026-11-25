@@ -10,7 +10,7 @@ use tokio::{
 use tokio_util::codec::{Encoder, FramedWrite};
 
 use crate::{
-    ActorAddr, ActorSend, Msg, RouteTo, SendErrAction,
+    ActorAddr, ActorSend, CHANNEL_SIZE, Msg, RouteTo, SendErrAction,
     codec::ErrWithMsg,
     node_comm::{Connection, ControlReq},
 };
@@ -20,7 +20,7 @@ pub(crate) async fn tx<M, E, BS>(
     my_addr: &'static str,
     before_send: Option<BS>,
     ask_receiver_to_adapt: bool,
-    mut p_rx: mpsc::UnboundedReceiver<(M, &'static str)>,
+    mut p_rx: mpsc::Receiver<(M, &'static str)>,
     controller_tx: mpsc::Sender<ControlReq>,
     codec: E,
     on_send_failure: SendErrAction,
@@ -30,7 +30,7 @@ pub(crate) async fn tx<M, E, BS>(
     E: Encoder<M> + 'static + Send + Clone,
     E::Error: Send + 'static + ErrWithMsg<M>,
 {
-    let mut addr_to_buff: HashMap<ActorAddr, mpsc::UnboundedSender<M>> = HashMap::new();
+    let mut addr_to_buff: HashMap<ActorAddr, mpsc::Sender<M>> = HashMap::new();
     let mut sub_senders = JoinSet::new();
     tracing::info!("[ACTOR][{}] Tx Started", my_addr);
 
@@ -39,28 +39,34 @@ pub(crate) async fn tx<M, E, BS>(
             let receivers: RouteTo<'_> = before_send.before_send(&m).await;
             match receivers {
                 RouteTo::Blackhole => {}
-                RouteTo::Reply => send_msg(
-                    my_addr,
-                    ask_receiver_to_adapt,
-                    controller_tx.clone(),
-                    codec.clone(),
-                    &mut addr_to_buff,
-                    &mut sub_senders,
-                    origin,
-                    m,
-                    on_send_failure,
-                ),
-                RouteTo::Single(send_to) => send_msg(
-                    my_addr,
-                    ask_receiver_to_adapt,
-                    controller_tx.clone(),
-                    codec.clone(),
-                    &mut addr_to_buff,
-                    &mut sub_senders,
-                    &send_to,
-                    m,
-                    on_send_failure,
-                ),
+                RouteTo::Reply => {
+                    send_msg(
+                        my_addr,
+                        ask_receiver_to_adapt,
+                        controller_tx.clone(),
+                        codec.clone(),
+                        &mut addr_to_buff,
+                        &mut sub_senders,
+                        origin,
+                        m,
+                        on_send_failure,
+                    )
+                    .await
+                }
+                RouteTo::Single(send_to) => {
+                    send_msg(
+                        my_addr,
+                        ask_receiver_to_adapt,
+                        controller_tx.clone(),
+                        codec.clone(),
+                        &mut addr_to_buff,
+                        &mut sub_senders,
+                        &send_to,
+                        m,
+                        on_send_failure,
+                    )
+                    .await
+                }
                 RouteTo::Multiple(receivers) => {
                     let num_receivers = receivers.len();
                     if num_receivers == 0 {
@@ -77,7 +83,8 @@ pub(crate) async fn tx<M, E, BS>(
                             addr,
                             m.clone(),
                             on_send_failure,
-                        );
+                        )
+                        .await;
                     }
                     send_msg(
                         my_addr,
@@ -89,7 +96,8 @@ pub(crate) async fn tx<M, E, BS>(
                         &receivers[num_receivers - 1],
                         m,
                         on_send_failure,
-                    );
+                    )
+                    .await
                 }
             }
         }
@@ -102,12 +110,12 @@ pub(crate) async fn tx<M, E, BS>(
 
 #[allow(clippy::too_many_arguments)]
 #[inline(always)]
-fn send_msg<M, E>(
+async fn send_msg<M, E>(
     my_addr: &'static str,
     ask_receiver_to_adapt: bool,
     controller_tx: mpsc::Sender<ControlReq>,
     codec: E,
-    addr_to_buff: &mut HashMap<String, mpsc::UnboundedSender<M>>,
+    addr_to_buff: &mut HashMap<String, mpsc::Sender<M>>,
     sub_senders: &mut JoinSet<()>,
     addr: &str,
     m: M,
@@ -118,11 +126,11 @@ fn send_msg<M, E>(
     E::Error: Send + 'static + ErrWithMsg<M>,
 {
     if let Some(sender) = addr_to_buff.get(addr) {
-        if let Err(e) = sender.send(m) {
+        if let Err(e) = sender.send(m).await {
             log::error!("[ACTOR] Failed to send message to {}: {}", addr, e);
         }
     } else {
-        let (tx, rx) = mpsc::unbounded_channel::<M>();
+        let (tx, rx) = mpsc::channel::<M>(CHANNEL_SIZE);
         sub_senders.spawn(sender_task(
             my_addr,
             ask_receiver_to_adapt,
@@ -141,7 +149,7 @@ async fn sender_task<M, E>(
     my_addr: &'static str,
     ask_receiver_to_adapt: bool,
     send_addr: ActorAddr,
-    rx: mpsc::UnboundedReceiver<M>,
+    rx: mpsc::Receiver<M>,
     encoder: E,
     controller_tx: mpsc::Sender<ControlReq>,
     on_send_failure: SendErrAction,
@@ -154,7 +162,7 @@ async fn sender_task<M, E>(
         my_addr: &'static str,
         ask_receiver_to_adapt: bool,
         mut tx: impl AsyncWrite + Unpin,
-        mut rx: mpsc::UnboundedReceiver<M>,
+        mut rx: mpsc::Receiver<M>,
         encoder: C,
         on_send_failure: SendErrAction,
     ) where
@@ -222,7 +230,7 @@ async fn sender_task<M, E>(
         my_addr: &'static str,
         ask_receiver_to_adapt: bool,
         tx: mpsc::Sender<Box<dyn Any + Send>>,
-        mut rx: mpsc::UnboundedReceiver<M>,
+        mut rx: mpsc::Receiver<M>,
         on_send_failure: SendErrAction,
     ) {
         log::info!("[ACTOR] SubTx Started (Local)");

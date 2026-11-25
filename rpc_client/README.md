@@ -26,27 +26,32 @@ All URIs are relative to *http://localhost*
 
 Class | Method | HTTP request | Description
 ------------ | ------------- | ------------- | -------------
-*DefaultApi* | [**actor_added**](docs/DefaultApi.md#actor_added) | **POST** /actor_added | 
-*DefaultApi* | [**get_status**](docs/DefaultApi.md#get_status) | **GET** /status | 
-*DefaultApi* | [**register_lib**](docs/DefaultApi.md#register_lib) | **POST** /register_lib | 
-*DefaultApi* | [**set_duplication**](docs/DefaultApi.md#set_duplication) | **POST** /set_duplication | 
-*DefaultApi* | [**set_msg_delay**](docs/DefaultApi.md#set_msg_delay) | **POST** /set_msg_delay | 
-*DefaultApi* | [**set_msg_loss**](docs/DefaultApi.md#set_msg_loss) | **POST** /set_msg_loss | 
-*DefaultApi* | [**start_actor**](docs/DefaultApi.md#start_actor) | **POST** /start_actor | 
-*DefaultApi* | [**stop_actor**](docs/DefaultApi.md#stop_actor) | **POST** /stop_actor | 
-*DefaultApi* | [**stop_all_actors**](docs/DefaultApi.md#stop_all_actors) | **POST** /stop_all_actors | 
-*DefaultApi* | [**unset_msg_delay**](docs/DefaultApi.md#unset_msg_delay) | **POST** /unset_msg_delay | 
-*DefaultApi* | [**unset_msg_duplication**](docs/DefaultApi.md#unset_msg_duplication) | **POST** /unset_msg_duplication | 
-*DefaultApi* | [**unset_msg_loss**](docs/DefaultApi.md#unset_msg_loss) | **POST** /unset_msg_loss | 
+*ActorLifecycleApi* | [**actor_added**](docs/ActorLifecycleApi.md#actor_added) | **POST** /actor_added | 
+*ActorLifecycleApi* | [**get_status**](docs/ActorLifecycleApi.md#get_status) | **GET** /status | 
+*ActorLifecycleApi* | [**start_actor**](docs/ActorLifecycleApi.md#start_actor) | **POST** /start_actor | 
+*ActorLifecycleApi* | [**stop_actor**](docs/ActorLifecycleApi.md#stop_actor) | **POST** /stop_actor/{actor_addr} | 
+*ActorLifecycleApi* | [**stop_all_actors**](docs/ActorLifecycleApi.md#stop_all_actors) | **POST** /stop_all_actors | 
+*ChaosApi* | [**set_duplication**](docs/ChaosApi.md#set_duplication) | **POST** /set_duplication | 
+*ChaosApi* | [**set_msg_delay**](docs/ChaosApi.md#set_msg_delay) | **POST** /set_msg_delay | 
+*ChaosApi* | [**set_msg_loss**](docs/ChaosApi.md#set_msg_loss) | **POST** /set_msg_loss | 
+*ChaosApi* | [**unset_msg_delay**](docs/ChaosApi.md#unset_msg_delay) | **POST** /unset_msg_delay | 
+*ChaosApi* | [**unset_msg_duplication**](docs/ChaosApi.md#unset_msg_duplication) | **POST** /unset_msg_duplication | 
+*ChaosApi* | [**unset_msg_loss**](docs/ChaosApi.md#unset_msg_loss) | **POST** /unset_msg_loss | 
+*CompileApi* | [**build_lib**](docs/CompileApi.md#build_lib) | **POST** /builds | 
+*CompileApi* | [**cancel_build**](docs/CompileApi.md#cancel_build) | **DELETE** /builds/{lib_name} | 
+*CompileApi* | [**cancel_builds**](docs/CompileApi.md#cancel_builds) | **DELETE** /builds | 
+*CompileApi* | [**clear_build_cache**](docs/CompileApi.md#clear_build_cache) | **DELETE** /cache | 
 
 
 ## Documentation For Models
 
+ - [CancelledBuilds](docs/CancelledBuilds.md)
+ - [ClearedCache](docs/ClearedCache.md)
+ - [CompilationArgs](docs/CompilationArgs.md)
  - [DisableMsgDelayRequest](docs/DisableMsgDelayRequest.md)
  - [MsgDelayRequest](docs/MsgDelayRequest.md)
  - [MsgDuplicationRequest](docs/MsgDuplicationRequest.md)
  - [MsgLossRequest](docs/MsgLossRequest.md)
- - [RegistrationArgs](docs/RegistrationArgs.md)
  - [RemoteActorInfo](docs/RemoteActorInfo.md)
  - [SpawnArgs](docs/SpawnArgs.md)
  - [StatusResponse](docs/StatusResponse.md)

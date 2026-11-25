@@ -13,9 +13,18 @@ use syn::{
 pub fn actor(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemFn);
     let name = &input.sig.ident;
+    let vis = &input.vis;
+    // Exports a spawn function that reports a panic of the actor's start-up code as an `Err`
+    // (see `reactor_actor::catch_spawn`); the inner item shadows the wrapper inside its body.
     let fn_tokens = quote! {
         #[unsafe(no_mangle)]
-        #input
+        #vis fn #name(
+            ctx: reactor_actor::RuntimeCtx,
+            payload: ::std::collections::HashMap<String, reactor_actor::__serde_json::Value>,
+        ) -> ::std::result::Result<(), String> {
+            #input
+            reactor_actor::catch_spawn(move || #name(ctx, payload))
+        }
 
         reactor_actor::register_actor!(#name);
     };
