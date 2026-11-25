@@ -25,7 +25,7 @@ impl ChaosOp {
     async fn apply(&self, client_config: &Configuration, actor_name: String) {
         match self {
             ChaosOp::Crash(CrashOp { .. }) => {
-                reactor_client::apis::default_api::stop_actor(client_config, &actor_name)
+                reactor_client::apis::actor_lifecycle_api::stop_actor(client_config, &actor_name)
                     .await
                     .unwrap();
             }
@@ -35,7 +35,7 @@ impl ChaosOp {
                     actor_name,
                     probability: probability.0,
                 };
-                reactor_client::apis::default_api::set_msg_loss(client_config, msg_loss_request)
+                reactor_client::apis::chaos_api::set_msg_loss(client_config, msg_loss_request)
                     .await
                     .unwrap();
             }
@@ -50,7 +50,7 @@ impl ChaosOp {
                     factor: factor.0,
                     probability: probability.0,
                 };
-                reactor_client::apis::default_api::set_duplication(
+                reactor_client::apis::chaos_api::set_duplication(
                     client_config,
                     msg_duplication_request,
                 )
@@ -68,7 +68,7 @@ impl ChaosOp {
                     delay_range_end: delay_range_ms.1 as i64,
                     senders: senders.clone(),
                 };
-                reactor_client::apis::default_api::set_msg_delay(client_config, msg_delay_request)
+                reactor_client::apis::chaos_api::set_msg_delay(client_config, msg_delay_request)
                     .await
                     .unwrap();
             }
@@ -83,31 +83,31 @@ impl ChaosOp {
     ) {
         match self {
             ChaosOp::Crash(CrashOp { .. }) => {
-                reactor_client::apis::default_api::start_actor(client_config, spawn_args.clone())
-                    .await
-                    .unwrap();
+                reactor_client::apis::actor_lifecycle_api::start_actor(
+                    client_config,
+                    spawn_args.clone(),
+                )
+                .await
+                .unwrap();
             }
 
             ChaosOp::MsgLoss(MsgLossOp { .. }) => {
-                reactor_client::apis::default_api::unset_msg_loss(client_config, &actor_name)
+                reactor_client::apis::chaos_api::unset_msg_loss(client_config, &actor_name)
                     .await
                     .unwrap();
             }
 
             ChaosOp::MsgDuplication(MsgDuplicationOp { .. }) => {
-                reactor_client::apis::default_api::unset_msg_duplication(
-                    client_config,
-                    &actor_name,
-                )
-                .await
-                .unwrap();
+                reactor_client::apis::chaos_api::unset_msg_duplication(client_config, &actor_name)
+                    .await
+                    .unwrap();
             }
             ChaosOp::MsgDelay(MsgDelayOp { senders, .. }) => {
                 let disable_delay_request = DisableMsgDelayRequest {
                     actor_name,
                     senders: senders.clone(),
                 };
-                reactor_client::apis::default_api::unset_msg_delay(
+                reactor_client::apis::chaos_api::unset_msg_delay(
                     client_config,
                     disable_delay_request,
                 )
@@ -158,9 +158,9 @@ impl NodeHandle {
 
     #[cfg(feature = "dynop")]
     async fn register_lib(&mut self, lib_info: &LibInfo) {
-        reactor_client::apis::default_api::register_lib(
+        reactor_client::apis::compile_api::build_lib(
             &self.client_config,
-            reactor_client::models::RegistrationArgs {
+            reactor_client::models::CompilationArgs {
                 args: lib_info.compile_info.clone(),
                 lib_name: lib_info.name.clone(),
             },
@@ -180,7 +180,7 @@ impl NodeHandle {
         self.actor_spawn_args
             .insert(physical_op.actor_name.clone(), spawn_args.clone());
         let mut remote_actor_info =
-            reactor_client::apis::default_api::start_actor(&self.client_config, spawn_args)
+            reactor_client::apis::actor_lifecycle_api::start_actor(&self.client_config, spawn_args)
                 .await
                 .unwrap();
         remote_actor_info.hostname = self.hostname.to_string();
@@ -208,9 +208,12 @@ impl NodeHandle {
     }
 
     async fn notify_remote_actor_added(&self, remote_actor: &RemoteActorInfo) {
-        reactor_client::apis::default_api::actor_added(&self.client_config, remote_actor.clone())
-            .await
-            .unwrap();
+        reactor_client::apis::actor_lifecycle_api::actor_added(
+            &self.client_config,
+            remote_actor.clone(),
+        )
+        .await
+        .unwrap();
     }
 
     async fn schedule_actor_chaos(&self) {
@@ -240,7 +243,7 @@ impl NodeHandle {
     }
 
     async fn stop_all_actors(self) {
-        reactor_client::apis::default_api::stop_all_actors(&self.client_config)
+        reactor_client::apis::actor_lifecycle_api::stop_all_actors(&self.client_config)
             .await
             .unwrap();
     }
