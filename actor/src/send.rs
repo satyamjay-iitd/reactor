@@ -140,7 +140,10 @@ async fn send_msg<M, E>(
             controller_tx,
             on_send_failure,
         ));
-        let _ = tx.send(m);
+        // The sub-sender owns `rx`, so this only fails if it has already exited.
+        if let Err(e) = tx.send(m).await {
+            log::error!("[ACTOR] Failed to send message to {}: {}", addr, e);
+        }
         addr_to_buff.insert(addr.to_string(), tx);
     }
 }
@@ -407,4 +410,57 @@ async fn send_local_handshake(
         (my_name.to_string(), None)
     };
     tx.send(Box::new(to_send)).await.unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{HasPriority, codec::BincodeCodec};
+
+    #[derive(Debug, Clone, PartialEq, bincode::Encode, bincode::Decode)]
+    struct Num(u32);
+    impl HasPriority for Num {}
+    impl Msg for Num {}
+
+    /// What a local receiver gets: the handshake, then each message.
+    async fn received(rx: &mut mpsc::Receiver<Box<dyn Any + Send>>) -> Num {
+        let m = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+            .await
+            .expect("a message within 2 s")
+            .expect("the channel is open");
+        *m.downcast::<Num>().expect("a Num")
+    }
+
+    #[tokio::test]
+    async fn the_first_message_to_an_actor_arrives() {
+        // A controller that resolves every address to one local channel.
+        let (controller_tx, mut controller_rx) = mpsc::channel(4);
+        let (local_tx, mut local_rx) = mpsc::channel::<Box<dyn Any + Send>>(16);
+        tokio::spawn(async move {
+            while let Some(ControlReq::Resolve { resp_tx, .. }) = controller_rx.recv().await {
+                let _ = resp_tx.send(Connection::Local(local_tx.clone()));
+            }
+        });
+        let mut buffers = HashMap::new();
+        let mut senders = JoinSet::new();
+        for i in 0..3 {
+            send_msg(
+                "me",
+                false,
+                controller_tx.clone(),
+                BincodeCodec::<Num, Num>::default(),
+                &mut buffers,
+                &mut senders,
+                "you",
+                Num(i),
+                SendErrAction::Drop,
+            )
+            .await;
+        }
+        let handshake = local_rx.recv().await.unwrap();
+        assert!(handshake.downcast::<(String, Option<String>)>().is_ok());
+        for i in 0..3 {
+            assert_eq!(received(&mut local_rx).await, Num(i));
+        }
+    }
 }
