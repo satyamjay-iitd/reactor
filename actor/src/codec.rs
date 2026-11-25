@@ -64,6 +64,7 @@ impl<M> ErrWithMsg<M> for EncodeError<M> {
 
 impl<M> From<std::io::Error> for EncodeError<M> {
     fn from(err: std::io::Error) -> Self {
+        log::error!("[CODEC] send failed: {err}");
         EncodeError {
             io_error: err,
             msg: None,
@@ -74,7 +75,8 @@ impl<M> From<std::io::Error> for EncodeError<M> {
 impl<E: bincode::Encode, D> tokio_util::codec::Encoder<E> for BincodeCodec<E, D> {
     type Error = EncodeError<E>;
     fn encode(&mut self, item: E, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        let encoded_data = bincode::encode_to_vec(&item, self.config).map_err(|_| {
+        let encoded_data = bincode::encode_to_vec(&item, self.config).map_err(|e| {
+            log::error!("[CODEC] bincode encode failed: {e}");
             std::io::Error::new(std::io::ErrorKind::InvalidData, "Failed to encode data")
         })?;
         self.length_codec

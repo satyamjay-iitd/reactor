@@ -322,7 +322,7 @@ impl<PM: PlacementManager> JobController<PM> {
     }
 
     pub async fn chaos_scheduler(&self) {
-        for (_, node_handle) in self.nodes.iter() {
+        for node_handle in self.nodes.values() {
             node_handle.schedule_actor_chaos().await;
         }
     }
