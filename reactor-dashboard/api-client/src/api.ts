@@ -782,10 +782,13 @@ export const ChaosApiAxiosParamCreator = function (configuration?: Configuration
         },
         /**
          * 
+         * @param {string} body Name of the actor to stop duplicating messages, as a JSON string (or plain text)
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        unsetMsgDuplication: async (options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+        unsetMsgDuplication: async (body: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'body' is not null or undefined
+            assertParamExists('unsetMsgDuplication', 'body', body)
             const localVarPath = `/unset_msg_duplication`;
             // use dummy base URL string because the URL constructor only accepts absolute URLs.
             const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
@@ -804,9 +807,12 @@ export const ChaosApiAxiosParamCreator = function (configuration?: Configuration
 
 
     
+            localVarHeaderParameter['Content-Type'] = 'text/plain';
+
             setSearchParams(localVarUrlObj, localVarQueryParameter);
             let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
             localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(body, localVarRequestOptions, configuration)
 
             return {
                 url: toPathString(localVarUrlObj),
@@ -815,10 +821,13 @@ export const ChaosApiAxiosParamCreator = function (configuration?: Configuration
         },
         /**
          * 
+         * @param {string} body Name of the actor to stop losing messages, as a JSON string (or plain text)
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        unsetMsgLoss: async (options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+        unsetMsgLoss: async (body: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'body' is not null or undefined
+            assertParamExists('unsetMsgLoss', 'body', body)
             const localVarPath = `/unset_msg_loss`;
             // use dummy base URL string because the URL constructor only accepts absolute URLs.
             const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
@@ -837,9 +846,12 @@ export const ChaosApiAxiosParamCreator = function (configuration?: Configuration
 
 
     
+            localVarHeaderParameter['Content-Type'] = 'text/plain';
+
             setSearchParams(localVarUrlObj, localVarQueryParameter);
             let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
             localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(body, localVarRequestOptions, configuration)
 
             return {
                 url: toPathString(localVarUrlObj),
@@ -906,22 +918,24 @@ export const ChaosApiFp = function(configuration?: Configuration) {
         },
         /**
          * 
+         * @param {string} body Name of the actor to stop duplicating messages, as a JSON string (or plain text)
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async unsetMsgDuplication(options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.unsetMsgDuplication(options);
+        async unsetMsgDuplication(body: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.unsetMsgDuplication(body, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['ChaosApi.unsetMsgDuplication']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
          * 
+         * @param {string} body Name of the actor to stop losing messages, as a JSON string (or plain text)
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async unsetMsgLoss(options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.unsetMsgLoss(options);
+        async unsetMsgLoss(body: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.unsetMsgLoss(body, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['ChaosApi.unsetMsgLoss']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
@@ -974,19 +988,21 @@ export const ChaosApiFactory = function (configuration?: Configuration, basePath
         },
         /**
          * 
+         * @param {string} body Name of the actor to stop duplicating messages, as a JSON string (or plain text)
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        unsetMsgDuplication(options?: RawAxiosRequestConfig): AxiosPromise<void> {
-            return localVarFp.unsetMsgDuplication(options).then((request) => request(axios, basePath));
+        unsetMsgDuplication(body: string, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+            return localVarFp.unsetMsgDuplication(body, options).then((request) => request(axios, basePath));
         },
         /**
          * 
+         * @param {string} body Name of the actor to stop losing messages, as a JSON string (or plain text)
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        unsetMsgLoss(options?: RawAxiosRequestConfig): AxiosPromise<void> {
-            return localVarFp.unsetMsgLoss(options).then((request) => request(axios, basePath));
+        unsetMsgLoss(body: string, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+            return localVarFp.unsetMsgLoss(body, options).then((request) => request(axios, basePath));
         },
     };
 };
@@ -1044,22 +1060,24 @@ export class ChaosApi extends BaseAPI {
 
     /**
      * 
+     * @param {string} body Name of the actor to stop duplicating messages, as a JSON string (or plain text)
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      * @memberof ChaosApi
      */
-    public unsetMsgDuplication(options?: RawAxiosRequestConfig) {
-        return ChaosApiFp(this.configuration).unsetMsgDuplication(options).then((request) => request(this.axios, this.basePath));
+    public unsetMsgDuplication(body: string, options?: RawAxiosRequestConfig) {
+        return ChaosApiFp(this.configuration).unsetMsgDuplication(body, options).then((request) => request(this.axios, this.basePath));
     }
 
     /**
      * 
+     * @param {string} body Name of the actor to stop losing messages, as a JSON string (or plain text)
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      * @memberof ChaosApi
      */
-    public unsetMsgLoss(options?: RawAxiosRequestConfig) {
-        return ChaosApiFp(this.configuration).unsetMsgLoss(options).then((request) => request(this.axios, this.basePath));
+    public unsetMsgLoss(body: string, options?: RawAxiosRequestConfig) {
+        return ChaosApiFp(this.configuration).unsetMsgLoss(body, options).then((request) => request(this.axios, this.basePath));
     }
 }
 

@@ -186,7 +186,9 @@ pub async fn unset_msg_delay(configuration: &configuration::Configuration, disab
     }
 }
 
-pub async fn unset_msg_duplication(configuration: &configuration::Configuration, ) -> Result<(), Error<UnsetMsgDuplicationError>> {
+pub async fn unset_msg_duplication(configuration: &configuration::Configuration, body: &str) -> Result<(), Error<UnsetMsgDuplicationError>> {
+    // add a prefix to parameters to efficiently prevent name collisions
+    let p_body = body;
 
     let uri_str = format!("{}/unset_msg_duplication", configuration.base_path);
     let mut req_builder = configuration.client.request(reqwest::Method::POST, &uri_str);
@@ -197,6 +199,7 @@ pub async fn unset_msg_duplication(configuration: &configuration::Configuration,
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
     };
+    req_builder = req_builder.json(&p_body);
 
     let req = req_builder.build()?;
     let resp = configuration.client.execute(req).await?;
@@ -212,7 +215,9 @@ pub async fn unset_msg_duplication(configuration: &configuration::Configuration,
     }
 }
 
-pub async fn unset_msg_loss(configuration: &configuration::Configuration, ) -> Result<(), Error<UnsetMsgLossError>> {
+pub async fn unset_msg_loss(configuration: &configuration::Configuration, body: &str) -> Result<(), Error<UnsetMsgLossError>> {
+    // add a prefix to parameters to efficiently prevent name collisions
+    let p_body = body;
 
     let uri_str = format!("{}/unset_msg_loss", configuration.base_path);
     let mut req_builder = configuration.client.request(reqwest::Method::POST, &uri_str);
@@ -223,6 +228,7 @@ pub async fn unset_msg_loss(configuration: &configuration::Configuration, ) -> R
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
     };
+    req_builder = req_builder.json(&p_body);
 
     let req = req_builder.build()?;
     let resp = configuration.client.execute(req).await?;

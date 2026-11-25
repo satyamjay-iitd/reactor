@@ -604,10 +604,19 @@ async fn set_msg_delay(
     StatusCode::NOT_IMPLEMENTED.into_response()
 }
 
+/// An actor's name sent as a body: a JSON string (as the generated clients
+/// send it) or the bare name.
+#[cfg(feature = "chaos")]
+fn actor_name(body: String) -> String {
+    serde_json::from_str::<String>(&body).unwrap_or(body)
+}
+
 #[cfg_attr(feature="swagger", utoipa::path(
     post,
     path = "/unset_msg_duplication",
     tag = "chaos",
+    request_body(content = String,
+        description = "Name of the actor to stop duplicating messages, as a JSON string (or plain text)"),
     responses(
         (status = 200, description = "Msg Duplication Config Removed"),
         (status = 404, description = "Actor not found"),
@@ -620,6 +629,7 @@ async fn unset_msg_duplication(
 ) -> Response {
     #[cfg(feature = "chaos")]
     {
+        let _actor_addr = actor_name(_actor_addr);
         apply_chaos(
             &_state,
             _actor_addr.clone(),
@@ -638,6 +648,8 @@ async fn unset_msg_duplication(
     post,
     path = "/unset_msg_loss",
     tag = "chaos",
+    request_body(content = String,
+        description = "Name of the actor to stop losing messages, as a JSON string (or plain text)"),
     responses(
         (status = 200, description = "Msg Loss Config Removed"),
         (status = 404, description = "Actor not found"),
@@ -647,6 +659,7 @@ async fn unset_msg_duplication(
 async fn unset_msg_loss(State(_state): State<Arc<AppState>>, _actor_addr: String) -> Response {
     #[cfg(feature = "chaos")]
     {
+        let _actor_addr = actor_name(_actor_addr);
         apply_chaos(
             &_state,
             _actor_addr.clone(),

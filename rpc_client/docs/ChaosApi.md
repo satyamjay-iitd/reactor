@@ -127,12 +127,15 @@ Name | Type | Description  | Required | Notes
 
 ## unset_msg_duplication
 
-> unset_msg_duplication()
+> unset_msg_duplication(body)
 
 
 ### Parameters
 
-This endpoint does not need any parameter.
+
+Name | Type | Description  | Required | Notes
+------------- | ------------- | ------------- | ------------- | -------------
+**body** | **String** | Name of the actor to stop duplicating messages, as a JSON string (or plain text) | [required] |
 
 ### Return type
 
@@ -144,7 +147,7 @@ This endpoint does not need any parameter.
 
 ### HTTP request headers
 
-- **Content-Type**: Not defined
+- **Content-Type**: text/plain
 - **Accept**: Not defined
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
@@ -152,12 +155,15 @@ This endpoint does not need any parameter.
 
 ## unset_msg_loss
 
-> unset_msg_loss()
+> unset_msg_loss(body)
 
 
 ### Parameters
 
-This endpoint does not need any parameter.
+
+Name | Type | Description  | Required | Notes
+------------- | ------------- | ------------- | ------------- | -------------
+**body** | **String** | Name of the actor to stop losing messages, as a JSON string (or plain text) | [required] |
 
 ### Return type
 
@@ -169,7 +175,7 @@ This endpoint does not need any parameter.
 
 ### HTTP request headers
 
-- **Content-Type**: Not defined
+- **Content-Type**: text/plain
 - **Accept**: Not defined
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)

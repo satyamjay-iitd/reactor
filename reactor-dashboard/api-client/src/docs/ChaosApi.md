@@ -224,7 +224,7 @@ void (empty response body)
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # **unsetMsgDuplication**
-> unsetMsgDuplication()
+> unsetMsgDuplication(body)
 
 
 ### Example
@@ -238,11 +238,18 @@ import {
 const configuration = new Configuration();
 const apiInstance = new ChaosApi(configuration);
 
-const { status, data } = await apiInstance.unsetMsgDuplication();
+let body: string; //Name of the actor to stop duplicating messages, as a JSON string (or plain text)
+
+const { status, data } = await apiInstance.unsetMsgDuplication(
+    body
+);
 ```
 
 ### Parameters
-This endpoint does not have any parameters.
+
+|Name | Type | Description  | Notes|
+|------------- | ------------- | ------------- | -------------|
+| **body** | **string**| Name of the actor to stop duplicating messages, as a JSON string (or plain text) | |
 
 
 ### Return type
@@ -255,7 +262,7 @@ void (empty response body)
 
 ### HTTP request headers
 
- - **Content-Type**: Not defined
+ - **Content-Type**: text/plain
  - **Accept**: Not defined
 
 
@@ -269,7 +276,7 @@ void (empty response body)
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # **unsetMsgLoss**
-> unsetMsgLoss()
+> unsetMsgLoss(body)
 
 
 ### Example
@@ -283,11 +290,18 @@ import {
 const configuration = new Configuration();
 const apiInstance = new ChaosApi(configuration);
 
-const { status, data } = await apiInstance.unsetMsgLoss();
+let body: string; //Name of the actor to stop losing messages, as a JSON string (or plain text)
+
+const { status, data } = await apiInstance.unsetMsgLoss(
+    body
+);
 ```
 
 ### Parameters
-This endpoint does not have any parameters.
+
+|Name | Type | Description  | Notes|
+|------------- | ------------- | ------------- | -------------|
+| **body** | **string**| Name of the actor to stop losing messages, as a JSON string (or plain text) | |
 
 
 ### Return type
@@ -300,7 +314,7 @@ void (empty response body)
 
 ### HTTP request headers
 
- - **Content-Type**: Not defined
+ - **Content-Type**: text/plain
  - **Accept**: Not defined
 
 
