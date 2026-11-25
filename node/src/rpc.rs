@@ -450,6 +450,48 @@ async fn get_status(State(state): State<Arc<AppState>>) -> Result<Json<StatusRes
     }))
 }
 
+#[cfg_attr(feature="swagger", utoipa::path(
+    get,
+    path = "/metrics",
+    tag = "actor_lifecycle",
+    responses(
+        (status = 200, description = "What each local actor has done so far: counts of messages \
+            received, processed and sent (by destination, with bytes), time in its processor, \
+            queue lengths, its state, and its operator's own values. Prometheus' text format, \
+            or JSON (`{time_ms, actors: [...]}`) if the request accepts `application/json`.",
+            content_type = "text/plain"),
+        (status = 500, description = "The node controller is not running")
+    )
+))]
+async fn get_metrics(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    let actors = match state
+        .request(|resp_tx| JobControllerReq::ActorLifeCycle(ActorLifeCycle::GetMetrics { resp_tx }))
+        .await
+    {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
+    let wants_json = headers
+        .get(header::ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.contains("application/json"));
+    if wants_json {
+        let time_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as u64);
+        Json(crate::metrics::MetricsResponse { time_ms, actors }).into_response()
+    } else {
+        (
+            [(
+                header::CONTENT_TYPE,
+                "text/plain; version=0.0.4; charset=utf-8",
+            )],
+            crate::metrics::prometheus(&actors),
+        )
+            .into_response()
+    }
+}
+
 //////////////////////////////////////////////////////////////////////
 ////////////////////////// CHAOS APIs ////////////////////////////////
 //////////////////////////////////////////////////////////////////////
@@ -720,6 +762,7 @@ async fn unset_msg_delay(
         stop_actor,
         stop_all_actors,
         get_status,
+        get_metrics,
         set_duplication,
         set_msg_loss,
         set_msg_delay,
@@ -787,6 +830,7 @@ pub async fn webserver(
         .route("/builds/{lib_name}", delete(cancel_build))
         // actor lifecycle
         .route("/status", get(get_status))
+        .route("/metrics", get(get_metrics))
         .route("/start_actor", post(start_actor))
         .route("/actor_added", post(actor_added))
         .route("/stop_actor/{actor_addr}", post(stop_actor))
